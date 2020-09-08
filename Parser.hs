@@ -1,24 +1,28 @@
 {-# LANGUAGE BlockArguments #-}
 
-module Parser
-    ( Parser
+module Parser (
+    -- Parser combinators and things
+      Parser
     , parse
+    , (<|>)
     , choice
     , between
-    , symbol
-    , identifier
-    , string
-    , array
-    , list
-    , hex
-    , bin
-    , integer
-    , decimal
-    , character
-    , (<|>)
+
+    -- text parsers
     , space
+    , identifier
+    , symbol
+    , character
+
+    -- number parsers
+    , decimal
+    , integer
     , binary
     , hexadecimal
+
+    -- list parsers
+    , list
+    , array
     ) where
 
 import Control.Monad
