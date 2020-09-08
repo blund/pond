@@ -147,14 +147,3 @@ main = do
     file <- hGetContents handle
     print $ extract $ parse program file
     hClose handle
-    print $ parse hex "0xf"
-    print $ parse bin "  0b1001     \n\t "
-    print $ parse binary "0b001"
-    print $ parse hexadecimal "0x0f"
-    {-
-    print $ parse (array decimal) "[0.4, 0.3, 3.14, 0.3]"
-    print $ parse identifier " t_test'"
-    print $ parse mdcExpr "2 + 2"
-    print $ parse program "int main() { return 2; }"
-    print $ compile $ extract $ parse program "int main() { return 2; }"
-    -}
