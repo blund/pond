@@ -17,6 +17,8 @@ module Parser
     , character
     , (<|>)
     , space
+    , binary
+    , hexadecimal
     ) where
 
 import Control.Monad
@@ -153,9 +155,27 @@ integer = token int
 bin :: Parser String
 bin = token bin'
 
+binary :: Parser Int
+binary = binToInt <$> bin
+
+binToInt b = sum $ zipWith (*) p2 $ reverse $ map num $ drop 2 b
+    where p2 = [2^n | n <- [0,1..]]
+          num v = ord v - 48
+
+
 hex :: Parser String
 hex = token hex'
 
+hexadecimal :: Parser Int
+hexadecimal = hexToInt <$> token hex'
+
+hexToInt h = sum $ zipWith (*) p16 $ reverse $ map readHex $ drop 2 h
+    where p16 = [16^n | n <- [0,1..]]
+
+readHex v | 48 <= v' && v' <= 57 = v' - 48
+          | 65 <= v' && v' <= 70 = v' - 65 + 10
+          | 97 <= v' && v' <= 102 = v' - 97 + 10
+    where v' = ord v
 
 character :: Char -> Parser Char
 character c = token (char c)
