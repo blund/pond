@@ -1,11 +1,14 @@
-module Main where
-import System.IO
-import Control.Monad
-import Control.Applicative
+module Main (main) where
+
+import Prelude hiding (not)
+
 import Data.Char
+import Control.Monad
+import Control.Applicative hiding (Const)
+import System.IO
+import System.Environment
 
 import Parser
-import MDC
 
 ---------------------------------------
 -- | Datatypes that make the AST
@@ -30,12 +33,14 @@ data Variable = VarDef
     , v_name :: String
     }
 
-data Exp = Int Int
+data Exp = Const Int | UnOp Operator Exp
 
 data Type = Type String
 
-data Id = Id String
+data Operator = Negate | Complement | Not deriving
+    (Show)
 
+data Id = Id String
 
 
 ---------------------------------------
@@ -46,8 +51,8 @@ instance Show Program where
     show (Program fd) = show fd
 
 instance Show Fun where
-    show f = foldr (++) [] [ "fun '"
-                           , show (f_id f), "': ", show (f_type f), "\n"
+    show f = foldr (++) [] [ "fun "
+                           , show (f_id f), ": ", show (f_type f), "\n"
                            , "params:\n\t", show (f_vars f), "\n"
                            , "body:\n\treturn: ", show (f_st f), "\n"
                            ]
@@ -63,7 +68,8 @@ instance Show Variable where
     show v =  v_name v ++ ":" ++  show (v_type v)
 
 instance Show Exp where
-    show (Int v) = "Int<" ++ show v ++ ">"
+    show (Const v) = "Int<" ++ show v ++ ">"
+    show (UnOp o v) = show o ++ show v-- "Int<" ++ show v ++ ">"
 
 instance Show Type where
     show (Type t) = t
@@ -72,10 +78,14 @@ instance Show Id where
     show (Id string) = string
 
 
-
 ---------------------------------------
 -- | Front end / Parsers
 ---------------------------------------
+
+getOperator :: String -> Operator
+getOperator "~" = Complement
+getOperator "-" = Negate
+getOperator "!" = Not
 
 program :: Parser Program
 program = Program <$> function
@@ -100,9 +110,14 @@ statement = do
     return e
 
 val :: Parser Exp
-val = Int <$> binary
-    <|> Int <$> hexadecimal
-    <|> Int <$> integer
+val = op <|> const
+    where const = (binary <|> hexadecimal <|> integer) >>= \const -> return $ Const const
+          op = do
+            o <- getOperator <$> (symbol "!" <|> symbol "~" <|> symbol "-")
+            v <- val
+            return (UnOp o v)
+        -- @TODO: må også parse for expr...
+
 
 
 varDecl :: Parser Variable
@@ -122,28 +137,61 @@ varList = VarList <$> list varDecl "(" ")" <|> do symbol "("
 -- | Back end
 -----------------------------------
 
-executeC :: Program -> String
-executeC p = runMain p
+extract :: [(a, b)] -> a
+extract ((a,b):xs) = a
+extract _ = error "parse error"
+
+execute :: Program -> String
+execute p = runMain p
     where runMain (Program f) = case f_id f of
             (Id "main") -> getResult (f_st f)
             otherwise -> error "no function main defined"
           getResult (Return e) = show e
 
 compile :: Program -> String
-compile p = function (fname p) (rvalue p)
-    where function name value = head name ++ return value
-          head name = ".globl _" ++ name ++ "\n\n_" ++ name ++ ":\n"
-          return value = "movl $" ++ show value ++ ", %eax\nret\n"
-          fname (Program f) = show $ f_id f
-          rvalue (Program f) = show $ f_st f
+compile (Program f) = head ((\(Id id) -> id)(f_id f)) ++ body ++ "ret\n"
+    where head name = ".globl _" ++ name ++ "\n\n_" ++ name ++ ":\n"
+          expr = (\(Return e) -> e) $ f_st f
+          body = evalExpr expr
 
-extract :: [(a, b)] -> a
-extract ((a,b):xs) = a
-extract _ = error "parse error"
+movl :: Int -> String
+movl v = "\tmovl\t$" ++ show v ++ ", %eax\n"
+
+neg :: String
+neg = "\tneg\t%eax\n"
+
+not :: String
+not = "\tnot\t%eax\n"
+
+compl :: String
+compl = "\tcmpl\t$0, %eax\n"    -- compare eax to 0
+      ++"\txor\t%eax, %eax\n"   -- zero out register
+      ++"\tsete\t%al\n"         -- iff ZF from comparison, set lower byte of eax
+
+evalExpr :: Exp -> String
+evalExpr (Const int) = movl int
+evalExpr (UnOp op expr) = (evalExpr expr) ++ op'
+    where op' = case op of
+                    Negate -> neg
+                    Not -> not
+                    Complement -> compl
+
+
 
 main :: IO ()
 main = do
+    mode <- getArgs
+
     handle <- openFile "test.c" ReadMode
     file <- hGetContents handle
-    print $ extract $ parse program file
+
+    let ast = extract $ parse program file
+
+    case mode of
+        ["compile"] -> do
+            writeFile "test.s" $ compile ast
+        otherwise -> do
+            print ast
+            print $ execute ast
+
     hClose handle
