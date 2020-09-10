@@ -8,9 +8,9 @@ import System.IO
 import System.Environment
 import System.Process
 
-import Backend
-import Frontend
-import Parser
+import Pond.Backend
+import Pond.Frontend
+import Pond.Parser
 
 
 main :: IO ()
