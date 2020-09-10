@@ -1,19 +1,23 @@
+{-# LANGUAGE BangPatterns #-}
 module Main (main) where
 
-import Prelude hiding (not)
+import Prelude hiding (not, subtract)
 
 import Data.Char
+
 import Control.Monad
 import Control.Applicative hiding (Const)
+
 import System.IO
 import System.Environment
+import System.Process
 
 import Parser
 
 ---------------------------------------
 -- | Datatypes that make the AST
 ---------------------------------------
---
+
 data Program = Program Fun
 
 data Fun = Fun
@@ -23,7 +27,7 @@ data Fun = Fun
     , f_st      :: Statement
     }
 
-data Statement = Return Exp
+data Statement = Return Expr
 
 data VarList = VarList [Variable]
              | VarEmpty
@@ -33,12 +37,15 @@ data Variable = VarDef
     , v_name :: String
     }
 
-data Exp = Const Int | UnOp Operator Exp
+data Expr = BinOp BOperator Expr Expr | UnOp UOperator Expr | Const Int
 
 data Type = Type String
 
-data Operator = Negate | Complement | Not deriving
-    (Show)
+data UOperator = Negate | Complement | Not
+    deriving (Show)
+
+data BOperator = Add | Subtract | Divide | Multiply
+    deriving (Show)
 
 data Id = Id String
 
@@ -67,9 +74,10 @@ instance Show VarList where
 instance Show Variable where
     show v =  v_name v ++ ":" ++  show (v_type v)
 
-instance Show Exp where
+instance Show Expr where
     show (Const v) = "Int<" ++ show v ++ ">"
     show (UnOp o v) = show o ++ show v-- "Int<" ++ show v ++ ">"
+    show (BinOp b v1 v2) = show b ++  "(" ++ show v1 ++ ", " ++ show v2 ++ ")"-- "Int<" ++ show v ++ ">"
 
 instance Show Type where
     show (Type t) = t
@@ -81,12 +89,7 @@ instance Show Id where
 ---------------------------------------
 -- | Front end / Parsers
 ---------------------------------------
-
-getOperator :: String -> Operator
-getOperator "~" = Complement
-getOperator "-" = Negate
-getOperator "!" = Not
-
+--
 program :: Parser Program
 program = Program <$> function
 
@@ -105,20 +108,50 @@ function = do
 statement :: Parser Statement
 statement = do
     symbol "return"
-    e <- Return <$> val
+    e <- Return <$> expr
     symbol ";"
     return e
 
-val :: Parser Exp
-val = op <|> const
-    where const = (binary <|> hexadecimal <|> integer) >>= \const -> return $ Const const
-          op = do
-            o <- getOperator <$> (symbol "!" <|> symbol "~" <|> symbol "-")
-            v <- val
-            return (UnOp o v)
-        -- @TODO: må også parse for expr...
+getUOperator :: String -> UOperator
+getUOperator "-" = Negate
+getUOperator "!" = Not
+getUOperator "~" = Complement
 
+getBOperator :: String -> BOperator
+getBOperator "+" = Add
+getBOperator "-" = Subtract
+getBOperator "*" = Multiply
+getBOperator "/" = Divide
 
+-- https://norasandler.com/2017/12/15/Write-a-Compiler-3.html
+
+expr :: Parser Expr
+expr = do
+        e1 <- term
+        op <- getBOperator <$> (symbol "+" <|> symbol "-")
+        e2 <- expr
+        return $!(BinOp op e1 e2)
+       <|> term
+
+term :: Parser Expr
+term = do
+        t1 <- factor
+        op <- getBOperator <$> (symbol "*" <|> symbol "/")
+        t2 <- term
+        return (BinOp op t1 t2)
+       <|> factor
+
+factor :: Parser Expr
+factor = do
+            symbol "("
+            e <- expr
+            symbol ")"
+            return e
+         <|> do
+            o <- getUOperator <$> (symbol "-" <|> symbol "~" <|> symbol "!")
+            f <- factor
+            return (UnOp o f)
+         <|> (Const <$> integer)
 
 varDecl :: Parser Variable
 varDecl = do
@@ -132,6 +165,7 @@ varList :: Parser VarList
 varList = VarList <$> list varDecl "(" ")" <|> do symbol "("
                                                   symbol ")"
                                                   pure VarEmpty
+
 
 -----------------------------------
 -- | Back end
@@ -154,6 +188,7 @@ compile (Program f) = head ((\(Id id) -> id)(f_id f)) ++ body ++ "ret\n"
           expr = (\(Return e) -> e) $ f_st f
           body = evalExpr expr
 
+
 movl :: Int -> String
 movl v = "\tmovl\t$" ++ show v ++ ", %eax\n"
 
@@ -164,19 +199,52 @@ not :: String
 not = "\tnot\t%eax\n"
 
 compl :: String
-compl = "\tcmpl\t$0, %eax\n"    -- compare eax to 0
-      ++"\txor\t%eax, %eax\n"   -- zero out register
-      ++"\tsete\t%al\n"         -- iff ZF from comparison, set lower byte of eax
+compl =  "\tcmpl\t$0, %eax\n"    -- compare eax to 0
+      ++ "\txor\t%eax, %eax\n"   -- zero out register
+      ++ "\tsete\t%al\n"         -- iff ZF from comparison, set lower byte of eax
 
-evalExpr :: Exp -> String
+add :: String -> String -> String
+add e1 e2 =  e1
+          ++ "\tpush\t%eax\n"
+          ++ e2
+          ++ "\tpop\t%ecx\n"
+          ++ "\taddl\t%ecx, %eax\n"
+
+multiply :: String -> String -> String
+multiply e1 e2 =  e1
+          ++ "\tpush\t%eax\n"
+          ++ e2
+          ++ "\tpop\t%ecx\n"
+          ++ "\timul\t%ecx, %eax\n"
+
+subtract :: String -> String -> String
+subtract e1 e2 =  e2                -- merk! operander er byttet om
+          ++ "\tpush\t%eax\n"
+          ++ e1
+          ++ "\tpop\t%ecx\n"
+          ++ "\tsubl\t%ecx, %eax\n"
+
+divide :: String -> String -> String
+divide e1 e2 =  e2              -- merk! operander er byttet om
+          ++ "\tpush\t%eax\n"
+          ++ "\tcdq\n"          -- sign extend eax inn i edx
+          ++ e1
+          ++ "\tpop\t%ecx\n"
+          ++ "\tidivl\t%ecx, %eax\n"
+
+evalExpr :: Expr -> String
 evalExpr (Const int) = movl int
-evalExpr (UnOp op expr) = (evalExpr expr) ++ op'
+evalExpr (UnOp op e) = (evalExpr e) ++ op'
     where op' = case op of
                     Negate -> neg
                     Not -> not
                     Complement -> compl
-
-
+evalExpr (BinOp op e1 e2) = op' (evalExpr e1) (evalExpr e2)
+    where op' = case op of
+                    Add -> add
+                    Subtract -> subtract
+                    Multiply -> multiply
+                    Divide -> divide
 
 main :: IO ()
 main = do
@@ -192,6 +260,6 @@ main = do
             writeFile "test.s" $ compile ast
         otherwise -> do
             print ast
-            print $ execute ast
+            -- print $ execute ast
 
     hClose handle
