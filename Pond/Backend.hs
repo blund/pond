@@ -35,7 +35,7 @@ movl v =  "\tmovl\t$" ++ show v ++ ", %eax\n"
        ++ "\n"
 
 neg :: String
-neg =  "\tneg\t%eax\n"
+neg =  "\tneg\t\t%eax\n"
     ++ "\n"
 
 not :: String
@@ -52,7 +52,7 @@ add :: String -> String -> String
 add e1 e2 =  e1
           ++ "\tpush\t%eax\n"
           ++ e2
-          ++ "\tpop\t%ecx\n"
+          ++ "\tpop\t\t%ecx\n"
           ++ "\taddl\t%ecx, %eax\n"
           ++ "\n"
 
@@ -60,7 +60,7 @@ multiply :: String -> String -> String
 multiply e1 e2 =  e1
           ++ "\tpush\t%eax\n"
           ++ e2
-          ++ "\tpop\t%ecx\n"
+          ++ "\tpop\t\t%ecx\n"
           ++ "\timul\t%ecx, %eax\n"
           ++ "\n"
 
@@ -68,7 +68,7 @@ subtract :: String -> String -> String
 subtract e1 e2 =  e2                -- merk! operander er byttet om
           ++ "\tpush\t%eax\n"
           ++ e1
-          ++ "\tpop\t%ecx\n"
+          ++ "\tpop\t\t%ecx\n"
           ++ "\tsubl\t%ecx, %eax\n"
           ++ "\n"
 
@@ -77,7 +77,7 @@ divide e1 e2 =  e2              -- merk! operander er byttet om
           ++ "\tpush\t%eax\n"
           ++ "\tcdq\n"          -- sign extend eax inn i edx
           ++ e1
-          ++ "\tpop\t%ecx\n"
+          ++ "\tpop\t\t%ecx\n"
           ++ "\tidivl\t%ecx, %eax\n"
           ++ "\n"
 
