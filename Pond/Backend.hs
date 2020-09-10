@@ -31,18 +31,22 @@ compile (Program f) = head ((\(Id id) -> id)(f_id f)) ++ body ++ "ret\n"
 
 
 movl :: Int -> String
-movl v = "\tmovl\t$" ++ show v ++ ", %eax\n"
+movl v =  "\tmovl\t$" ++ show v ++ ", %eax\n"
+       ++ "\n"
 
 neg :: String
-neg = "\tneg\t%eax\n"
+neg =  "\tneg\t%eax\n"
+    ++ "\n"
 
 not :: String
 not = "\tnot\t%eax\n"
+    ++ "\n"
 
 compl :: String
 compl =  "\tcmpl\t$0, %eax\n"    -- compare eax to 0
       ++ "\txor\t%eax, %eax\n"   -- zero out register
       ++ "\tsete\t%al\n"         -- iff ZF from comparison, set lower byte of eax
+      ++ "\n"
 
 add :: String -> String -> String
 add e1 e2 =  e1
@@ -50,6 +54,7 @@ add e1 e2 =  e1
           ++ e2
           ++ "\tpop\t%ecx\n"
           ++ "\taddl\t%ecx, %eax\n"
+          ++ "\n"
 
 multiply :: String -> String -> String
 multiply e1 e2 =  e1
@@ -57,6 +62,7 @@ multiply e1 e2 =  e1
           ++ e2
           ++ "\tpop\t%ecx\n"
           ++ "\timul\t%ecx, %eax\n"
+          ++ "\n"
 
 subtract :: String -> String -> String
 subtract e1 e2 =  e2                -- merk! operander er byttet om
@@ -64,6 +70,7 @@ subtract e1 e2 =  e2                -- merk! operander er byttet om
           ++ e1
           ++ "\tpop\t%ecx\n"
           ++ "\tsubl\t%ecx, %eax\n"
+          ++ "\n"
 
 divide :: String -> String -> String
 divide e1 e2 =  e2              -- merk! operander er byttet om
@@ -72,6 +79,7 @@ divide e1 e2 =  e2              -- merk! operander er byttet om
           ++ e1
           ++ "\tpop\t%ecx\n"
           ++ "\tidivl\t%ecx, %eax\n"
+          ++ "\n"
 
 evalExpr :: Expr -> String
 evalExpr (Const int) = movl int
