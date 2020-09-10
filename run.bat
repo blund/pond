@@ -2,7 +2,7 @@
 
 set startTime=%time%
 echo compile
-make compile
+ghc -e "import System.Environment" -e ":set args compile" -e main Main.hs
 
 echo Start compile: %startTime%
 echo End compile:   %time%
@@ -22,4 +22,3 @@ a.exe
 echo.
 echo result:
 echo %ERRORLEVEL%
-del test.s
