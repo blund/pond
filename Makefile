@@ -1,7 +1,7 @@
 
 all:
-	@ghc -e main Pond.hs
-build:
-	@ghc --make -outputdir build Pond.hs
+	@ghc -e main Main.hs
+build: Main.hs
+	@ghc --make -outputdir build -o Pond Main.hs
 compile:
-	@ghc -e "import System.Environment" -e ":set args compile" -e main Pond.hs
+	@ghc -e "import System.Environment" -e ":set args compile" -e main Main.hs
