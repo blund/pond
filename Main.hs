@@ -17,7 +17,7 @@ main :: IO ()
 main = do
     mode <- getArgs
 
-    handle <- openFile "test.c" ReadMode
+    handle <- openFile "Examples/test.c" ReadMode
     file <- hGetContents handle
 
     let ast = extract $ parse program file
