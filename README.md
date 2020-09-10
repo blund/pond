@@ -17,7 +17,7 @@ int main () {
     return -0b1001+0xff/(0b11+2);
 }
 ```
-You can view the result of this compilation in the file `test.s` after compilation.
+You can view the result of this compilation in the file `out.s` after compilation.
 We then use GCC to assemble this file, and produce and executable.
 The backend currently compiles to x86. Other backends will be added when the language is more mature.
 
