@@ -19,6 +19,7 @@ int main () {
 ```
 You can view the result of this compilation in the file `test.s` after compilation.
 We then use GCC to assemble this file, and produce and executable.
+The backend currently compiles to x86. Other backends will be added when the language is more mature.
 
 So far, the language assumes only the `main` function is defined, and that it `return`s a mathematical experssion. This expression supports decimal, binary and hexadecimal values :)
 
