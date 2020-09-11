@@ -20,22 +20,23 @@ execute p = runMain p
           getResult (Return e) = show e
 
 compile :: Program -> String
-compile (Program f) = head ((\(Id id) -> id)(f_id f)) ++ body ++ "ret\n"
+compile (Program f) = head ((\(Id id) -> id)(f_id f)) ++ body ++ print ++ "ret\n"
     where head name = ".globl " ++ name ++ "\n\n" ++ name ++ ":\n"
           expr = (\(Return e) -> e) $ f_st f
+          print = "\tmovq\t%rax, %rdi\n"++"\tcall print\n"
           body = evalExpr expr
 
 
 movl :: Int -> String
-movl v =  "\tmovl\t$" ++ show v ++ ", %eax\n"
+movl v =  "\tmov\t$" ++ show v ++ ", %rax\n"
        ++ "\n"
 
 neg :: String
-neg =  "\tneg\t\t%eax\n"
+neg =  "\tneg\t\t%rax\n"
     ++ "\n"
 
 not :: String
-not = "\tnot\t%eax\n"
+not = "\tnot\t%rax\n"
     ++ "\n"
 
 compl :: String
@@ -46,35 +47,35 @@ compl =  "\tcmpl\t$0, %eax\n"    -- compare eax to 0
 
 add :: String -> String -> String
 add e1 e2 =  e1
-          ++ "\tpush\t%eax\n"
+          ++ "\tpush\t%rax\n"
           ++ e2
-          ++ "\tpop\t\t%ecx\n"
-          ++ "\taddl\t%ecx, %eax\n"
+          ++ "\tpop\t\t%rcx\n"
+          ++ "\tadd\t%rcx, %rax\n"
           ++ "\n"
 
 multiply :: String -> String -> String
 multiply e1 e2 =  e1
-          ++ "\tpush\t%eax\n"
+          ++ "\tpush\t%rax\n"
           ++ e2
-          ++ "\tpop\t\t%ecx\n"
-          ++ "\timul\t%ecx, %eax\n"
+          ++ "\tpop\t\t%rcx\n"
+          ++ "\timul\t%rcx, %rax\n"
           ++ "\n"
 
 subtract :: String -> String -> String
 subtract e1 e2 =  e2                -- merk! operander er byttet om
-          ++ "\tpush\t%eax\n"
+          ++ "\tpush\t%rax\n"
           ++ e1
-          ++ "\tpop\t\t%ecx\n"
-          ++ "\tsubl\t%ecx, %eax\n"
+          ++ "\tpop\t\t%rcx\n"
+          ++ "\tsub\t%rcx, %rax\n"
           ++ "\n"
 
 divide :: String -> String -> String
 divide e1 e2 =  e2              -- merk! operander er byttet om
-          ++ "\tpush\t%eax\n"
+          ++ "\tpush\t%rax\n"
           ++ "\tcdq\n"          -- sign extend eax inn i edx
           ++ e1
-          ++ "\tpop\t\t%ecx\n"
-          ++ "\tidivl\t%ecx, %eax\n"
+          ++ "\tpop\t\t%rcx\n"
+          ++ "\tdiv\t%rcx, %rax\n"
           ++ "\n"
 
 evalExpr :: Expr -> String
