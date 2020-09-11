@@ -72,7 +72,7 @@ subtract e1 e2 =  e2                -- merk! operander er byttet om
 divide :: String -> String -> String
 divide e1 e2 =  e2              -- merk! operander er byttet om
           ++ "\tpush\t%rax\n"
-          ++ "\tcdq\n"          -- sign extend eax inn i edx
+          ++ "\tcqo\n"          -- sign extend eax inn i edx
           ++ e1
           ++ "\tpop\t\t%rcx\n"
           ++ "\tdiv\t%rcx, %rax\n"
