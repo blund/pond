@@ -4,7 +4,7 @@ echo
 
 /usr/bin/time -f'compilation time time: %es' ./pond Examples/test.c
 
-/usr/bin/time -f'assembly time: %es' gcc out.s testing/print.c
+/usr/bin/time -f'assembly time: %es' gcc out.s Foreign/print.c
 
 ./a.out
 
