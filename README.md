@@ -18,7 +18,7 @@ int main () {
 }
 ```
 We then use GCC to assemble this file, and produce and executable.
-The backend currently compiles to x86. Other backends will be added when the language is more mature.
+The backend currently compiles to x86_64. Other backends will be added when the language is more mature.
 
 So far, the language assumes only the `main` function is defined, and that it `return`s a mathematical experssion. This expression supports decimal, binary and hexadecimal values :)
 
