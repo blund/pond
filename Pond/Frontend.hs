@@ -1,5 +1,5 @@
 module Pond.Frontend
-    ( program
+    ( parseSource
     ) where
 
 import Pond.AST
@@ -7,7 +7,13 @@ import Pond.Parser
 ---------------------------------------
 -- | Front end / Parsers
 ---------------------------------------
---
+
+extract :: [(a, b)] -> a
+extract ((a,b):xs) = a
+extract _ = error "parse error"
+
+parseSource = extract . parse program
+
 program :: Parser Program
 program = Program <$> function
 
@@ -45,19 +51,19 @@ getBOperator "/" = Divide
 
 expr :: Parser Expr
 expr = do
-        e1 <- term
-        op <- getBOperator <$> (symbol "+" <|> symbol "-")
-        e2 <- expr
-        return $!(BinOp op e1 e2)
-       <|> term
+        t1 <- term
+        (do
+            op <- getBOperator <$> (symbol "+" <|> symbol "-")
+            t2 <- term
+            return $!(BinOp op t1 t2)) <|> return t1
 
 term :: Parser Expr
 term = do
-        t1 <- factor
-        op <- getBOperator <$> (symbol "*" <|> symbol "/")
-        t2 <- term
-        return (BinOp op t1 t2)
-       <|> factor
+        f1 <- factor
+        (do
+            op <- getBOperator <$> (symbol "*" <|> symbol "/")
+            f2 <- factor
+            return (BinOp op f1 f2)) <|> return f1
 
 factor :: Parser Expr
 factor = do
