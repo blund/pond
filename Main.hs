@@ -31,6 +31,6 @@ main = do
 
     let ast = parseSource file
 
-    writeFile "out.s" $ compile ast
+    writeFile "Build/out.s" $ compile ast
 
     hClose handle
