@@ -1,6 +1,5 @@
 module Pond.Backend
     ( compile
-    , extract
     , execute
     ) where
 
@@ -12,9 +11,6 @@ import Pond.AST
 -- | Back end
 -----------------------------------
 
-extract :: [(a, b)] -> a
-extract ((a,b):xs) = a
-extract _ = error "parse error"
 
 execute :: Program -> String
 execute p = runMain p
@@ -25,7 +21,7 @@ execute p = runMain p
 
 compile :: Program -> String
 compile (Program f) = head ((\(Id id) -> id)(f_id f)) ++ body ++ "ret\n"
-    where head name = ".globl _" ++ name ++ "\n\n_" ++ name ++ ":\n"
+    where head name = ".globl " ++ name ++ "\n\n" ++ name ++ ":\n"
           expr = (\(Return e) -> e) $ f_st f
           body = evalExpr expr
 
