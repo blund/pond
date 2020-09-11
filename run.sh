@@ -8,4 +8,4 @@ echo
 
 ./a.out
 
-# rm a.out out.s pond
+rm a.out out.s pond
