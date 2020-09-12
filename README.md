@@ -23,3 +23,6 @@ The backend currently compiles to x86_64. Other backends will be added when the 
 So far, the language assumes only the `main` function is defined, and that it `return`s a mathematical experssion. This expression supports decimal, binary and hexadecimal values :)
 
 More will be added soon!
+
+The project is currenctly following the blog series from Nora Sandler, [Writing a C Comiler](https://norasandler.com/2017/11/29/Write-a-Compiler.html), which I heavily reccomend if you want to do a similar project.
+
