@@ -36,12 +36,13 @@ neg =  "\tneg\t\t%rax\n"
     ++ "\n"
 
 not :: String
-not = "\tnot\t%rax\n"
-    ++ "\n"
-
+not =    "\tcmp\t$0, %rax\n"    -- compare eax to 0
+      ++ "\txor\t$0, %rax\n"   -- zero out register
+      ++ "\tsete\t%al\n"         -- iff ZF from comparison, set lower byte of eax
+      ++ "\n"
 compl :: String
-compl =  "\tcmpl\t$0, %eax\n"    -- compare eax to 0
-      ++ "\txor\t%eax, %eax\n"   -- zero out register
+compl =  "\tcmp\t$0, %rax\n"    -- compare eax to 0
+      ++ "\txor\t%rax, %rax\n"   -- zero out register
       ++ "\tsete\t%al\n"         -- iff ZF from comparison, set lower byte of eax
       ++ "\n"
 
@@ -78,6 +79,17 @@ divide e1 e2 =  e2              -- merk! operander er byttet om
           ++ "\tdiv\t%rcx, %rax\n"
           ++ "\n"
 
+equal :: String -> String -> String
+equal e1 e2 = e1
+          ++ "\tpush\t%rax\n"
+          ++ e2
+          ++ "\tpop\t%rcx\n"          -- sign extend eax inn i edx
+          ++ "\tcmp\t%rax, %rcx\n"          -- sign extend eax inn i edx
+          ++ "\txor\t%rax, %rax\n"          -- sign extend eax inn i edx
+          ++ "\tsete\t%al\n"
+
+
+
 evalExpr :: Expr -> String
 evalExpr (Const int) = movl int
 evalExpr (UnOp op e) = (evalExpr e) ++ op'
@@ -91,3 +103,4 @@ evalExpr (BinOp op e1 e2) = op' (evalExpr e1) (evalExpr e2)
                     Subtract -> subtract
                     Multiply -> multiply
                     Divide -> divide
+                    Equal -> equal
