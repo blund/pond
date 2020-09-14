@@ -7,6 +7,13 @@ import System.Process
 import Pond.Backend
 import Pond.Frontend
 
+parse :: IO ()
+parse = do
+            handle <- openFile "Examples/test.pnd" ReadMode
+            file <- hGetContents handle
+            let ast = parseSource file
+            print ast
+
 
 main :: IO ()
 main = do
