@@ -6,6 +6,7 @@ module Pond.Parser (
     , parse
     , (<|>)
     , choice
+    , choice'
     , between
 
     -- text parsers
@@ -77,6 +78,9 @@ sat p = do
 
 choice :: [Parser a] -> Parser a
 choice = asum -- asum bare folder over en liste med <|>
+
+choice' :: (a -> Parser a) -> [a] -> Parser a
+choice' p xs = asum (map p xs)
 
 between :: Parser a -> Parser b -> Parser c -> Parser a
 between parser open close = do

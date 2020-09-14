@@ -58,52 +58,32 @@ getBOperator "||"   = Or
 -- https://norasandler.com/2017/12/15/Write-a-Compiler-3.html
 
 expr :: Parser Expr
-expr = do
-        v1 <- pres6
-        (do
-            op <- getBOperator <$> (symbol "+" <|> symbol "-")
-            v2 <- pres6
-            return $!(BinOp op v1 v2)) <|> return v1
+expr = pres6
 
 pres6 :: Parser Expr
 pres6 = do
          v1 <- pres5
-         (do
-            op <- getBOperator <$> symbol "||"
-            v2 <- pres5
-            return (BinOp op v1 v2)) <|> return v1
+         leftRecur v1 pres5 ["||"]
 
 pres5 :: Parser Expr
 pres5 = do
          v1 <- pres4
-         (do
-            op <- getBOperator <$> (symbol "&&")
-            v2 <- pres4
-            return (BinOp op v1 v2)) <|> return v1
+         leftRecur v1 pres4 ["&&"]
 
 pres4 :: Parser Expr
 pres4 = do
          v1 <- pres3
-         (do
-            op <- getBOperator <$> (symbol "!=" <|> symbol "==")
-            v2 <- pres3
-            return (BinOp op v1 v2)) <|> return v1
+         leftRecurJoin v1 pres3 And ["!=","=="]
 
 pres3 :: Parser Expr
 pres3 = do
          v1 <- pres2
-         (do
-            op <- getBOperator <$> (symbol "<=" <|> symbol ">=" <|> symbol "<" <|> symbol ">")
-            v2 <- pres2
-            return (BinOp op v1 v2)) <|> return v1
+         leftRecurJoin v1 pres2 And ["<=", ">=", "<", ">"]
 
 pres2 :: Parser Expr
 pres2 = do
-         v1 <- pres1
-         (do
-            op <- getBOperator <$> (symbol "+" <|> symbol "-")
-            v2 <- pres1
-            return (BinOp op v1 v2)) <|> return v1
+        v1 <- pres1
+        leftRecur v1 pres1 ["+", "-"]
 
 pres1 :: Parser Expr
 pres1 = do
@@ -125,6 +105,32 @@ factor = do
             return (UnOp o v)
          <|> (Const <$> (hexadecimal <|> binary <|> integer))
 
+
+leftRecur :: Expr -> Parser Expr -> [String] -> Parser Expr
+leftRecur v1 pv ops = (do
+                    op <- getBOperator <$> choice' symbol ops
+                    v2 <- pv
+                    leftRecur (BinOp op v1 v2) pv ops) <|> return v1
+
+
+leftRecurJoin :: Expr -> Parser Expr -> BOperator -> [String] -> Parser Expr
+leftRecurJoin v1 pv join ops = (do
+                    op <- getBOperator <$> choice' symbol ops
+                    v2 <- pv
+                    v3 <- leftRecur' v2 pv ops
+                    return (BinOp join (BinOp op v1 v2) v3)) <|> return v1
+
+-- Hjelpefunksjon for leftRecurBind som kjører kun en gang, brukes f.eks for
+-- 8 > 7 > 6, hvor vi bare vil parse en rekurson :)
+leftRecur' :: Expr -> Parser Expr -> [String] -> Parser Expr
+leftRecur' v1 pv ops = (do
+                    op <- getBOperator <$> (choice' symbol ops)
+                    v2 <- pv
+                    return (BinOp op v1 v2)) <|> return v1
+
+
+
+-- test = [(Infix, ")]
 
 varDecl :: Parser Variable
 varDecl = do
