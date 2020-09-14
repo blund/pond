@@ -43,6 +43,10 @@ data UOperator = Negate | Complement | Not
     deriving (Show)
 
 data BOperator = Add | Subtract | Divide | Multiply
+               | Equal | NotEqual
+               | LessThan | GreaterThan
+               | LessEqual | GreaterEqual
+               | And | Or
     deriving (Show)
 
 data Id = Id String
