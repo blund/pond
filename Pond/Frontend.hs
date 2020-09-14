@@ -42,28 +42,76 @@ getUOperator "!" = Not
 getUOperator "~" = Complement
 
 getBOperator :: String -> BOperator
-getBOperator "+" = Add
-getBOperator "-" = Subtract
-getBOperator "*" = Multiply
-getBOperator "/" = Divide
+getBOperator "+"    = Add
+getBOperator "-"    = Subtract
+getBOperator "*"    = Multiply
+getBOperator "/"    = Divide
+getBOperator "=="   = Equal
+getBOperator "!="   = NotEqual
+getBOperator "<"    = LessThan
+getBOperator ">"    = GreaterThan
+getBOperator "<="   = LessEqual
+getBOperator ">="   = GreaterEqual
+getBOperator "&&"   = And
+getBOperator "||"   = Or
 
 -- https://norasandler.com/2017/12/15/Write-a-Compiler-3.html
 
 expr :: Parser Expr
 expr = do
-        t1 <- term
+        v1 <- pres6
         (do
             op <- getBOperator <$> (symbol "+" <|> symbol "-")
-            t2 <- term
-            return $!(BinOp op t1 t2)) <|> return t1
+            v2 <- pres6
+            return $!(BinOp op v1 v2)) <|> return v1
 
-term :: Parser Expr
-term = do
-        f1 <- factor
-        (do
+pres6 :: Parser Expr
+pres6 = do
+         v1 <- pres5
+         (do
+            op <- getBOperator <$> symbol "||"
+            v2 <- pres5
+            return (BinOp op v1 v2)) <|> return v1
+
+pres5 :: Parser Expr
+pres5 = do
+         v1 <- pres4
+         (do
+            op <- getBOperator <$> (symbol "&&")
+            v2 <- pres4
+            return (BinOp op v1 v2)) <|> return v1
+
+pres4 :: Parser Expr
+pres4 = do
+         v1 <- pres3
+         (do
+            op <- getBOperator <$> (symbol "!=" <|> symbol "==")
+            v2 <- pres3
+            return (BinOp op v1 v2)) <|> return v1
+
+pres3 :: Parser Expr
+pres3 = do
+         v1 <- pres2
+         (do
+            op <- getBOperator <$> (symbol "<=" <|> symbol ">=" <|> symbol "<" <|> symbol ">")
+            v2 <- pres2
+            return (BinOp op v1 v2)) <|> return v1
+
+pres2 :: Parser Expr
+pres2 = do
+         v1 <- pres1
+         (do
+            op <- getBOperator <$> (symbol "+" <|> symbol "-")
+            v2 <- pres1
+            return (BinOp op v1 v2)) <|> return v1
+
+pres1 :: Parser Expr
+pres1 = do
+         v1 <- factor
+         (do
             op <- getBOperator <$> (symbol "*" <|> symbol "/")
-            f2 <- factor
-            return (BinOp op f1 f2)) <|> return f1
+            v2 <- factor
+            return (BinOp op v1 v2)) <|> return v1
 
 factor :: Parser Expr
 factor = do
@@ -73,9 +121,10 @@ factor = do
             return e
          <|> do
             o <- getUOperator <$> (symbol "-" <|> symbol "~" <|> symbol "!")
-            f <- factor
-            return (UnOp o f)
+            v <- factor
+            return (UnOp o v)
          <|> (Const <$> (hexadecimal <|> binary <|> integer))
+
 
 varDecl :: Parser Variable
 varDecl = do
