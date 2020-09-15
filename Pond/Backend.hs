@@ -3,8 +3,9 @@ module Pond.Backend
     , execute
     ) where
 
-import Prelude hiding (not, subtract)
-
+import Prelude hiding (not, subtract, or, and)
+import Control.Monad.State
+import Data.String
 import Pond.AST
 
 -----------------------------------
@@ -23,84 +24,147 @@ compile :: Program -> String
 compile (Program f) = head ((\(Id id) -> id)(f_id f)) ++ body ++ print ++ "ret\n"
     where head name = ".globl " ++ name ++ "\n\n" ++ name ++ ":\n"
           expr = (\(Return e) -> e) $ f_st f
-          print = "\tmovq\t%rax, %rdi\n"++"\tcall print\n"
-          body = evalExpr expr
+          print = makeAsm ["movq\t%rax, %rdi", "call\tprint"]
+          body = evalState (evalExpr expr) 0
 
 
 movl :: Int -> String
-movl v =  "\tmov\t$" ++ show v ++ ", %rax\n"
-       ++ "\n"
+movl v =  makeAsm
+    [ "mov\t$" ++ show v ++ ", %rax"
+    ]
 
 neg :: String
-neg =  "\tneg\t\t%rax\n"
-    ++ "\n"
+neg = makeAsm
+    [ "neg  %rax"
+    ]
 
 not :: String
-not =    "\tcmp\t$0, %rax\n"    -- compare eax to 0
-      ++ "\txor\t$0, %rax\n"   -- zero out register
-      ++ "\tsete\t%al\n"         -- iff ZF from comparison, set lower byte of eax
-      ++ "\n"
+not = makeAsm
+    [ "cmp  $0, %rax"    -- compare eax to 0
+    , "xor  $0, %rax"   -- zero out register
+    , "sete %al"         -- iff ZF from comparison, set lower byte of eax
+    , ""
+    ]
+
 compl :: String
-compl =  "\tcmp\t$0, %rax\n"    -- compare eax to 0
-      ++ "\txor\t%rax, %rax\n"   -- zero out register
-      ++ "\tsete\t%al\n"         -- iff ZF from comparison, set lower byte of eax
-      ++ "\n"
+compl = makeAsm
+    [ "cmp  $0, %rax"    -- compare eax to 0
+    , "xor  %rax, %rax"   -- zero out register
+    , "sete %al"         -- iff ZF from comparison, set lower byte of eax
+    ]
 
 add :: String -> String -> String
-add e1 e2 =  e1
-          ++ "\tpush\t%rax\n"
-          ++ e2
-          ++ "\tpop\t\t%rcx\n"
-          ++ "\tadd\t%rcx, %rax\n"
-          ++ "\n"
+add e1 e2 = makeAsm
+    [ e1
+    , "push\t%rax"
+    , e2
+    , "pop\t\t%rcx"
+    , "add\t%rcx, %rax"
+    ]
 
 multiply :: String -> String -> String
-multiply e1 e2 =  e1
-          ++ "\tpush\t%rax\n"
-          ++ e2
-          ++ "\tpop\t\t%rcx\n"
-          ++ "\timul\t%rcx, %rax\n"
-          ++ "\n"
+multiply e1 e2 = makeAsm
+    [ e1
+    , "push\t%rax"
+    , e2
+    , "pop\t\t%rcx"
+    , "imul\t%rcx, %rax"
+    ]
 
 subtract :: String -> String -> String
-subtract e1 e2 =  e2                -- merk! operander er byttet om
-          ++ "\tpush\t%rax\n"
-          ++ e1
-          ++ "\tpop\t\t%rcx\n"
-          ++ "\tsub\t%rcx, %rax\n"
-          ++ "\n"
+subtract e1 e2 =  makeAsm
+    [ e2
+    , "push\t%rax"
+    , e1
+    , "pop\t\t%rcx"
+    , "sub\t%rcx, %rax"
+    ]
 
 divide :: String -> String -> String
-divide e1 e2 =  e2              -- merk! operander er byttet om
-          ++ "\tpush\t%rax\n"
-          ++ "\tcqo\n"          -- sign extend eax inn i edx
-          ++ e1
-          ++ "\tpop\t\t%rcx\n"
-          ++ "\tdiv\t%rcx, %rax\n"
-          ++ "\n"
+divide e1 e2 = makeAsm
+    [ e2              -- merk! operander er byttet om
+    , "push\t%rax"
+    , "cqo"          -- sign extend eax inn i edx
+    , e1
+    , "pop\t\t%rcx"
+    , "div\t%rcx, %rax"
+    ]
 
 equal :: String -> String -> String
-equal e1 e2 = e1
-          ++ "\tpush\t%rax\n"
-          ++ e2
-          ++ "\tpop\t%rcx\n"          -- sign extend eax inn i edx
-          ++ "\tcmp\t%rax, %rcx\n"          -- sign extend eax inn i edx
-          ++ "\txor\t%rax, %rax\n"          -- sign extend eax inn i edx
-          ++ "\tsete\t%al\n"
+equal e1 e2 = makeAsm
+    [ e1
+    , "push\t%rax"
+    , e2
+    , "pop\t%rcx"          -- sign extend eax inn i edx
+    , "cmp\t%rax, %rcx"          -- sign extend eax inn i edx
+    , "mov\t$0, %rax"          -- sign extend eax inn i edx
+    , "sete\t%al"
+    ]
+
+or :: Int -> String -> String -> String
+or count e1 e2 = makeAsm
+    [ e1
+    , "cmpl\t$0, %eax"               -- check if e1 is true
+    , "je\t\t_clause" ++ n    -- e1 is 0, so we need to evaluate clause 2
+    , "movl\t$1, %eax"                   -- we didn't jump, so e1 is true and therefore result is 1
+    , "jmp\t\t_end" ++ n
+    , ""
+    , "_clause" ++ n ++ ":"
+    , e2
+    , "cmpl\t$0, %eax"            -- check if e2 is true
+    , "movl\t$0, %eax"            -- zero out EAX without changing ZF
+    , "setne\t%al"                -- set AL register (the low byte of EAX) to 1 iff e2 != 0
+    , ""
+    , "_end" ++ n ++ ":"
+    ]
+  where n = show count
+
+and :: Int -> String -> String -> String
+and count e1 e2 = makeAsm
+    [ e1
+    , "cmpl\t$0, %eax"          -- check if e1 is true
+    , "jne\t\t_clause" ++ n     -- e1 isn't 0, so we need to evaluate clause 2
+    , "jmp\t\t_end" ++ n
+    , "_clause" ++ n ++ ":"
+    , e2
+    , "cmpl $0, %eax"           -- check if e2 is true
+    , "movl $0, %eax"           -- zero out EAX without changing ZF
+    , "setne %al"               -- set AL register (the low byte of EAX) to 1 iff e2 != 0
+    , "_end" ++ n ++ ":"
+    ]
+  where n = show count
+
+makeAsm :: [String] -> String
+makeAsm xs = unlines $ (++ [""]) xs
 
 
 
-evalExpr :: Expr -> String
-evalExpr (Const int) = movl int
-evalExpr (UnOp op e) = (evalExpr e) ++ op'
-    where op' = case op of
-                    Negate -> neg
-                    Not -> not
-                    Complement -> compl
-evalExpr (BinOp op e1 e2) = op' (evalExpr e1) (evalExpr e2)
-    where op' = case op of
-                    Add -> add
-                    Subtract -> subtract
-                    Multiply -> multiply
-                    Divide -> divide
-                    Equal -> equal
+type Count = Int
+evalExpr :: Expr -> State Count String
+evalExpr (Const int) = return $ movl int
+
+evalExpr (UnOp op e) = do
+        let op' = getUn op
+        e' <- evalExpr e
+        return $ e' ++ op'
+
+evalExpr (BinOp op e1 e2) = do
+        let op' = getBin op
+        count <- get
+        modify (+1)
+        e1' <- evalExpr e1
+        e2' <- evalExpr e2
+        return $ (op' count) e1' e2'
+
+
+getUn Negate        = neg
+getUn Not           = not
+getUn Complement    = compl
+
+getBin Add      = (const add)
+getBin Subtract = (const subtract)
+getBin Multiply = (const multiply)
+getBin Divide   = (const divide)
+getBin Equal    = (const equal)
+getBin Or       = (\n -> or n)
+getBin And       = (\n -> and n)
