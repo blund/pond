@@ -8,7 +8,6 @@ module Pond.AST
     , Type (..)
     , UOperator (..)
     , BOperator (..)
-    , Id (..)
     ) where
 
 
@@ -20,12 +19,14 @@ data Program = Program Fun
 
 data Fun = Fun
     { f_type    :: Type
-    , f_id      :: Id
+    , f_name    :: String
     , f_vars    :: VarList
-    , f_st      :: Statement
+    , f_st      :: [Statement]
     }
 
 data Statement = Return Expr
+               | Declare String (Maybe Expr)
+               | Expression Expr
 
 data VarList = VarList [Variable]
              | VarEmpty
@@ -35,7 +36,11 @@ data Variable = VarDef
     , v_name :: String
     }
 
-data Expr = BinOp BOperator Expr Expr | UnOp UOperator Expr | Const Int
+data Expr = Assign String Expr
+          | BinOp BOperator Expr Expr
+          | UnOp UOperator Expr
+          | Const Int
+          | Id String
 
 data Type = Type String
 
@@ -49,8 +54,6 @@ data BOperator = Add | Subtract | Divide | Multiply
                | And | Or
     deriving (Show)
 
-data Id = Id String
-
 
 ---------------------------------------
 -- | Instance declarations for the AST
@@ -60,14 +63,16 @@ instance Show Program where
     show (Program fd) = show fd
 
 instance Show Fun where
-    show f = foldr (++) [] [ "fun "
-                           , show (f_id f), ": ", show (f_type f), "\n"
+    show f = foldr (++) [] $ [ "fun "
+                           , show (f_name f), ": ", show (f_type f), "\n"
                            , "params:\n\t", show (f_vars f), "\n"
-                           , "body:\n\treturn: ", show (f_st f), "\n"
-                           ]
+                           -- , map show (f_st f), "\n"
+                           ] ++ map ((++ "\n") . show) (f_st f)
 
 instance Show Statement where
     show (Return e) = show e
+    show (Expression e) = show e
+    show (Declare name e) = show name ++ " = " ++ show e
 
 instance Show VarList where
     show VarEmpty = "none"
@@ -83,6 +88,3 @@ instance Show Expr where
 
 instance Show Type where
     show (Type t) = t
-
-instance Show Id where
-    show (Id string) = string
