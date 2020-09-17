@@ -1,6 +1,5 @@
 module Pond.Backend
     ( compile
-    , execute
     ) where
 
 import Prelude hiding (not, subtract, or, and)
@@ -12,24 +11,31 @@ import Pond.AST
 -- | Back end
 -----------------------------------
 
+{-
 
 execute :: Program -> String
 execute p = runMain p
-    where runMain (Program f) = case f_id f of
-            (Id "main") -> getResult (f_st f)
+    where runMain (Program f) = case f_name f of
+            "main" -> getResult (f_st f)
             otherwise -> error "no function main defined"
           getResult (Return e) = show e
+-}
 
 compile :: Program -> String
-compile (Program f) = head ((\(Id id) -> id)(f_id f)) ++ body ++ print ++ "ret\n"
+compile (Program f) = head (f_name f) ++ body ++ print ++ "ret\n"
     where head name = ".globl " ++ name ++ "\n\n" ++ name ++ ":\n"
-          expr = (\(Return e) -> e) $ f_st f
+          statements = f_st f
           print = makeAsm ["movq\t%rax, %rdi", "call\tprint"]
-          body = evalState (evalExpr expr) 0
+          -- Her mi ha en funksjon som evaluerer statements, ikke bare
+          -- Exprs...
+          body  = unlines $ map compileStatements statements
+
+compileStatements :: Statement -> String
+compileStatements (Return e) = evalState (evalExpr e) 0
 
 
-movl :: Int -> String
-movl v =  makeAsm
+mov :: Int -> String
+mov v =  makeAsm
     [ "mov\t$" ++ show v ++ ", %rax"
     ]
 
@@ -84,10 +90,10 @@ divide :: String -> String -> String
 divide e1 e2 = makeAsm
     [ e2              -- merk! operander er byttet om
     , "push\t%rax"
-    , "cqo"          -- sign extend eax inn i edx
     , e1
+    , "cqo" -- sign extend rax
     , "pop\t\t%rcx"
-    , "div\t%rcx, %rax"
+    , "idiv\t%rcx"
     ]
 
 equal :: String -> String -> String
@@ -104,15 +110,15 @@ equal e1 e2 = makeAsm
 or :: Int -> String -> String -> String
 or count e1 e2 = makeAsm
     [ e1
-    , "cmpl\t$0, %eax"               -- check if e1 is true
+    , "cmp\t$0, %rax"               -- check if e1 is true
     , "je\t\t_clause" ++ n    -- e1 is 0, so we need to evaluate clause 2
-    , "movl\t$1, %eax"                   -- we didn't jump, so e1 is true and therefore result is 1
+    , "mov\t$1, %rax"                   -- we didn't jump, so e1 is true and therefore result is 1
     , "jmp\t\t_end" ++ n
     , ""
     , "_clause" ++ n ++ ":"
     , e2
-    , "cmpl\t$0, %eax"            -- check if e2 is true
-    , "movl\t$0, %eax"            -- zero out EAX without changing ZF
+    , "cmp\t$0, %rax"            -- check if e2 is true
+    , "mov\t$0, %rax"            -- zero out EAX without changing ZF
     , "setne\t%al"                -- set AL register (the low byte of EAX) to 1 iff e2 != 0
     , ""
     , "_end" ++ n ++ ":"
@@ -127,8 +133,8 @@ and count e1 e2 = makeAsm
     , "jmp\t\t_end" ++ n
     , "_clause" ++ n ++ ":"
     , e2
-    , "cmpl $0, %eax"           -- check if e2 is true
-    , "movl $0, %eax"           -- zero out EAX without changing ZF
+    , "cmp $0, %rax"           -- check if e2 is true
+    , "mov $0, %rax"           -- zero out EAX without changing ZF
     , "setne %al"               -- set AL register (the low byte of EAX) to 1 iff e2 != 0
     , "_end" ++ n ++ ":"
     ]
@@ -141,7 +147,7 @@ makeAsm xs = unlines $ (++ [""]) xs
 
 type Count = Int
 evalExpr :: Expr -> State Count String
-evalExpr (Const int) = return $ movl int
+evalExpr (Const int) = return $ mov int
 
 evalExpr (UnOp op e) = do
         let op' = getUn op
@@ -167,4 +173,4 @@ getBin Multiply = (const multiply)
 getBin Divide   = (const divide)
 getBin Equal    = (const equal)
 getBin Or       = (\n -> or n)
-getBin And       = (\n -> and n)
+getBin And      = (\n -> and n)
