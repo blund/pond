@@ -20,21 +20,35 @@ program = Program <$> function
 function :: Parser Fun
 function = do
     typ <- Type <$> symbol "int"
-    id <- Id <$> identifier
+    name <- identifier
     vars <- varList
-    st <- between statement (symbol "{") (symbol "}")
+    st <- between (many statement) (symbol "{") (symbol "}")
     return $ Fun { f_type = typ
-                 , f_id = id
+                 , f_name = name
                  , f_vars = vars
                  , f_st = st
                  }
 
 statement :: Parser Statement
-statement = do
-    symbol "return"
-    e <- Return <$> expr
-    symbol ";"
-    return e
+statement = choice [ do
+                      symbol "return"
+                      e <- Return <$> expr
+                      symbol ";"
+                      return e
+                   , do
+                      e <- Expression <$> expr
+                      symbol ";"
+                      return e
+                   , do
+                      symbol "int"
+                      name <- identifier
+                      (do
+                        symbol "="
+                        e <- expr
+                        symbol ";"
+                        return (Declare name (Just e))) <|> return (Declare name Nothing)
+                    ]
+
 
 getUOperator :: String -> UOperator
 getUOperator "-" = Negate
@@ -58,7 +72,15 @@ getBOperator "||"   = Or
 -- https://norasandler.com/2017/12/15/Write-a-Compiler-3.html
 
 expr :: Parser Expr
-expr = pres6
+expr = decl <|> pres6
+
+decl :: Parser Expr
+decl = do
+    name <- identifier
+    symbol "="
+    e <- expr
+    return $ Assign name e
+
 
 pres6 :: Parser Expr
 pres6 = doLeftRecur pres5 ["||"]
@@ -88,7 +110,8 @@ factor = do
             o <- getUOperator <$> (symbol "-" <|> symbol "~" <|> symbol "!")
             v <- factor
             return (UnOp o v)
-         <|> (Const <$> (hexadecimal <|> binary <|> integer))
+         <|> Const <$> (hexadecimal <|> binary <|> integer)
+         <|> Id <$> identifier
 
 
 doLeftRecur :: Parser Expr -> [String] -> Parser Expr
