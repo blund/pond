@@ -7,6 +7,8 @@ module Pond.Parser (
     , (<|>)
     , choice
     , choice'
+    , some
+    , many
     , between
 
     -- text parsers
