@@ -5,7 +5,9 @@ module Pond.AST
     , VarList (..)
     , Variable (..)
     , Expr (..)
-    , Type (..)
+    , BlockItem (..)
+    , Declare (..)
+    -- , Type (..)
     , UOperator (..)
     , BOperator (..)
     ) where
@@ -16,33 +18,42 @@ module Pond.AST
 ---------------------------------------
 
 data Program = Program Fun
+  deriving (Show)
 
 data Fun = Fun
-    { f_type    :: Type
+    { f_type    :: String
     , f_name    :: String
     , f_vars    :: VarList
-    , f_st      :: [Statement]
+    , f_st      :: [BlockItem]
     }
+  deriving (Show)
+
+data BlockItem = Statement Statement
+               | Declaration Declare
+  deriving (Show)
+
+data Declare = Declare String (Maybe Expr)
+  deriving (Show)
 
 data Statement = Return Expr
-               | Declare String (Maybe Expr)
                | Expression Expr
+               | Condition Expr Statement (Maybe Statement)
+  deriving (Show)
 
-data VarList = VarList [Variable]
-             | VarEmpty
+type VarList = Maybe [Variable]
 
 data Variable = VarDef
-    { v_type :: Type
+    { v_type :: String
     , v_name :: String
     }
+  deriving (Show)
 
 data Expr = Assign String Expr
-     	  | Var String
+          | Var String
           | BinOp BOperator Expr Expr
           | UnOp UOperator Expr
           | Const Int
-
-data Type = Type String
+  deriving (Show)
 
 data UOperator = Negate | Complement | Not
     deriving (Show)
@@ -58,7 +69,7 @@ data BOperator = Add | Subtract | Divide | Multiply
 ---------------------------------------
 -- | Instance declarations for the AST
 ---------------------------------------
-
+{-
 instance Show Program where
     show (Program fd) = show fd
 
@@ -90,3 +101,4 @@ instance Show Expr where
 
 instance Show Type where
     show (Type t) = t
+-}

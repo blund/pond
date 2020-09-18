@@ -21,16 +21,16 @@ import Pond.AST
 compile :: Program -> String
 compile (Program f) = head (f_name f) ++ prologue ++ body ++ print ++ epilogue
     where head name = ".globl " ++ name ++ "\n\n" ++ name ++ ":\n"
-          statements = f_st f
+          block_items = f_st f
           print = makeAsm ["movq\t%rax, %rdi", "call\tprint"]
           -- Her mi ha en funksjon som evaluerer statements, ikke bare
           -- Exprs...
-          body  = unlines $ evalState (mapM compileStatements statements) initialState
+          body  = unlines $ evalState (mapM compileBlockItem block_items) initialState
 
 
 prologue = makeAsm [ "push %rbp"       -- save old value
                    , "mov %rsp, %rbp" -- current top of stack is bottom of new stack frame
-		   ]
+                   ]
            
 epilogue = makeAsm [ "mov %rbp, %rsp" -- restore ESP; now it points to old EBP
                    , "pop %rbp"        -- restore old EBP"   now ESP is where it was before prologue
@@ -38,19 +38,52 @@ epilogue = makeAsm [ "mov %rbp, %rsp" -- restore ESP; now it points to old EBP
                    ]
 
 
+compileBlockItem :: BlockItem -> State CompilerState String
+compileBlockItem (Statement s) = compileStatement s
+compileBlockItem (Declaration d) = compileDeclaration d
 
-compileStatements :: Statement -> State CompilerState String
-compileStatements (Return e) = evalExpr e
-compileStatements (Expression e) = evalExpr e
-compileStatements (Declare id me) = do
-	 index <- stack_index <$> get
-	 modify (\s@(CompilerState {stack_map=m}) -> s {stack_map = insert id index m})
-	 modify (\s@(CompilerState {stack_index=i}) -> s {stack_index =i-8})
+compileDeclaration :: Declare -> State CompilerState String
+compileDeclaration (Declare id me) = do
+         index <- gets stack_index
+         modify (\s@CompilerState {stack_map=m} -> s {stack_map = insert id index m})
+         modify (\s@CompilerState {stack_index=i} -> s {stack_index =i-8})
          case me of
-	      Nothing -> return $ "push\t%rax\n"
-	      Just e  -> do
-	      	   expr' <- evalExpr e
-	 	   return $ expr' ++ "push\t%rax\n" 
+           Nothing -> return "push\t%rax\n"
+           Just e  -> do
+             expr' <- evalExpr e
+             return $ expr' ++ "push\t%rax\n" 
+                 
+compileStatement :: Statement -> State CompilerState String
+compileStatement (Return e) = evalExpr e
+compileStatement (Expression e) = evalExpr e
+compileStatement c@(Condition _ _ _) = compileCondition c
+
+compileCondition :: Statement -> State CompilerState String
+compileCondition (Condition e s ms) = do
+    e1 <- evalExpr e
+    e2 <- compileStatement s
+    count <- gets counter
+    modify (\s@CompilerState {counter=c} -> s {counter = c+1})
+    case ms of
+      Nothing -> do
+        return $ makeAsm [ e1
+                         , "cmp $0, %rax"
+                         , "je _post_cond" ++ show count
+                         , e2
+                         , "_post_cond" ++ show count ++ ":"
+                         ]
+      Just s2  -> do
+        e3 <- compileStatement s2
+        return $ makeAsm [ e1
+                         , "cmp $0, %rax"
+                         , "je _e3" ++ show count
+                         , e2
+                         , "jmp _post_cond" ++ show count
+                         , "_e3" ++ show count ++ ":"
+                         , e3
+                         , "_post_cond" ++ show count ++ ":"
+                         ]
+        
 
 
 mov :: Int -> String
@@ -124,6 +157,17 @@ equal e1 e2 = makeAsm
     , "cmp\t%rax, %rcx"          -- sign extend eax inn i edx
     , "mov\t$0, %rax"          -- sign extend eax inn i edx
     , "sete\t%al"
+    ]
+    
+notEqual :: String -> String -> String
+notEqual e1 e2 = makeAsm
+    [ e1
+    , "push\t%rax"
+    , e2
+    , "pop\t%rcx"          -- sign extend eax inn i edx
+    , "cmp\t%rax, %rcx"          -- sign extend eax inn i edx
+    , "mov\t$0, %rax"          -- sign extend eax inn i edx
+    , "setne\t%al"
     ]
 
 or :: Int -> String -> String -> String
@@ -214,9 +258,9 @@ type StackIndex = Int
 data CompilerState = CompilerState { counter :: Int
                      , stack_index :: Int
                      , stack_map :: Map String Int
-		     }
+                     }
 
-initialState = CompilerState {counter = 0, stack_index = 0, stack_map = fromList []}
+initialState = CompilerState {counter = 0, stack_index = 0, stack_map = empty}
 
 
 evalExpr :: Expr -> State CompilerState String
@@ -229,47 +273,48 @@ evalExpr (UnOp op e) = do
 
 evalExpr (BinOp op e1 e2) = do
         let op' = getBin op
-        count <- counter <$> get
-        modify (\s@(CompilerState {counter=c}) -> s {counter = c+1})
+        count <- gets counter
+        modify (\s@CompilerState {counter=c} -> s {counter = c+1})
         e1' <- evalExpr e1
         e2' <- evalExpr e2
-        return $ (op' count) e1' e2'
+        return $ op' count e1' e2'
 
 evalExpr (Assign id expr) = do
-	 mpos <- lookup id . stack_map <$> get
-	 case mpos of
-	      Nothing -> error "Variable does not exist!"
-	      Just pos -> do
-	      	   expr' <- evalExpr expr
-		   return $ expr' ++ "mov\t%rax, " ++ show (pos-8) ++ "(%rbp)\n"
-	 
+         mpos <- gets $ lookup id . stack_map
+         case mpos of
+              Nothing -> error "Variable does not exist!"
+              Just pos -> do
+                   expr' <- evalExpr expr
+                   return $ expr' ++ "mov\t%rax, " ++ show (pos-8) ++ "(%rbp)\n"
+         
 
 
 evalExpr (Var id) = do
-	 mpos <- lookup id . stack_map <$> get 
-	 case mpos of
-	      Nothing -> error "yall fucked up"
-	      Just pos -> return $ "mov " ++ show (pos-8) ++ "(%rbp), %rax"
-	      -- @HACK: Her bare trekker vi fra 8, ettersom at det er
-	      -- indeks-feilen... Kanskje se om det er en fornuftig
-	      -- måte å gjøre dette på... Og! Dette vil avhenge av
-	      -- hva som pushes på stacken.. Kanskje man kan ha 
-	      -- mindre offsets for 32-bits variabler?
-	      -- Og hva med structs? Vi kommer vel dit!
+         mpos <- gets $ lookup id . stack_map
+         case mpos of
+              Nothing -> error "yall fucked up"
+              Just pos -> return $ "mov " ++ show (pos-8) ++ "(%rbp), %rax"
+              -- @HACK: Her bare trekker vi fra 8, ettersom at det er
+              -- indeks-feilen... Kanskje se om det er en fornuftig
+              -- måte å gjøre dette på... Og! Dette vil avhenge av
+              -- hva som pushes på stacken.. Kanskje man kan ha 
+              -- mindre offsets for 32-bits variabler?
+              -- Og hva med structs? Vi kommer vel dit!
 
 
 getUn Negate        = neg
 getUn Not           = not
 getUn Complement    = compl
 
-getBin Add      = (const add)
-getBin Subtract = (const subtract)
-getBin Multiply = (const multiply)
-getBin Divide   = (const divide)
-getBin Equal    = (const equal)
-getBin Or       = (\n -> or n)
-getBin And      = (\n -> and n)
-getBin LessThan = (const lessThan)
-getBin LessEqual = (const lessEqual)
-getBin GreaterThan = (const greaterThan)
-getBin GreaterEqual = (const greaterEqual)
+getBin Add          = const add
+getBin Subtract     = const subtract
+getBin Multiply     = const multiply
+getBin Divide       = const divide
+getBin Equal        = const equal
+getBin NotEqual     = const notEqual
+getBin Or           = or
+getBin And          = and
+getBin LessThan     = const lessThan
+getBin LessEqual    = const lessEqual
+getBin GreaterThan  = const greaterThan
+getBin GreaterEqual = const greaterEqual

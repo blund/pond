@@ -19,23 +19,21 @@ program = Program <$> function
 
 function :: Parser Fun
 function = do
-    typ <- Type <$> symbol "int"
+    typ <- symbol "int"
     name <- identifier
     vars <- varList
-    st <- between (many statement) (symbol "{") (symbol "}")
-    case checkForReturn st of
-    	 False -> error "no return statement in function!"
-	 True -> return $ Fun { f_type = typ
-                 , f_name = name
-                 , f_vars = vars
-                 , f_st = st
-                 }
+    bi <- between (many blockItem) (symbol "{") (symbol "}")
+    -- Her kan vi sjekke etter mangel på return statement!
+    return $ Fun { f_type = typ
+               , f_name = name
+               , f_vars = vars
+               , f_st = bi
+               }
 
-checkForReturn :: [Statement] -> Bool
-checkForReturn (x:xs) = case x of
-	       (Return _) -> True
-	       _ -> checkForReturn xs
-checkForReturn [] = False
+blockItem :: Parser BlockItem
+blockItem = choice [ Statement <$> statement
+                   , Declaration <$> declare
+                   ]
 
 statement :: Parser Statement
 statement = choice [ do
@@ -47,7 +45,33 @@ statement = choice [ do
                       e <- Expression <$> expr
                       symbol ";"
                       return e
-                   , do
+                   , condition
+                   ]
+            
+condition :: Parser Statement
+condition = do
+  symbol "if"
+  e <- expr
+  symbol "{"
+  s1 <- statement
+  symbol "}"
+  (else_block e s1) <|> (else_if e s1) <|> return (Condition e s1 Nothing)
+    where
+      else_block e s1 = do
+        symbol "else"
+        symbol "{"
+        s2 <- statement
+        symbol "}"
+        return (Condition e s1 (Just s2))
+      else_if e s1 = do
+                   symbol "else"
+                   s2 <- statement
+                   return (Condition e s1 (Just s2))
+ 
+
+
+declare :: Parser Declare
+declare = do
                       symbol "int"
                       name <- identifier
                       (do
@@ -55,10 +79,8 @@ statement = choice [ do
                         e <- expr
                         symbol ";"
                         return (Declare name (Just e))) <|> do
-			       symbol ";"
-			       return (Declare name Nothing)
-                    ]
-
+                               symbol ";"
+                               return (Declare name Nothing)
 
 getUOperator :: String -> UOperator
 getUOperator "-" = Negate
@@ -82,14 +104,14 @@ getBOperator "||"   = Or
 -- https://norasandler.com/2017/12/15/Write-a-Compiler-3.html
 
 expr :: Parser Expr
-expr = decl <|> pres6
+expr = assign <|> pres6
 
-decl :: Parser Expr
-decl = do
+
+assign :: Parser Expr
+assign = do
     name <- identifier
     symbol "="
-    e <- expr
-    return $ Assign name e
+    Assign name <$> expr
 
 
 pres6 :: Parser Expr
@@ -118,8 +140,7 @@ factor = do
             return e
          <|> do
             o <- getUOperator <$> (symbol "-" <|> symbol "~" <|> symbol "!")
-            v <- factor
-            return (UnOp o v)
+            UnOp o <$> factor
          <|> Const <$> (hexadecimal <|> binary <|> integer)
          <|> Var <$> identifier
 
@@ -153,9 +174,8 @@ leftRecurJoin v1 pv join ops = (do
 -- 8 > 7 > 6, hvor vi bare vil parse en rekurson :)
 leftRecur' :: Expr -> Parser Expr -> [String] -> Parser Expr
 leftRecur' v1 pv ops = do
-                    op <- getBOperator <$> (choice' symbol ops)
-                    v2 <- pv
-                    return (BinOp op v1 v2)
+                    op <- getBOperator <$> choice' symbol ops
+                    BinOp op v1 <$> pv
 
 
 
@@ -163,13 +183,16 @@ leftRecur' v1 pv ops = do
 
 varDecl :: Parser Variable
 varDecl = do
-    typ <- Type <$> identifier
+    typ <- identifier
     space
-    name <- identifier
-    return $ VarDef typ name
+    VarDef typ <$> identifier
 
 -- @Fiks: ordne en penere definisjon, se på liste-abstaksjonen
 varList :: Parser VarList
-varList = VarList <$> list varDecl "(" ")" <|> do symbol "("
-                                                  symbol ")"
-                                                  pure VarEmpty
+varList = do
+    vars <- list varDecl "(" ")"
+    return $ Just vars
+  <|> do
+       symbol "("
+       symbol ")"
+       return Nothing
