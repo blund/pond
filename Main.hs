@@ -7,8 +7,8 @@ import System.Process
 import Pond.Backend
 import Pond.Frontend
 
-parse :: IO ()
-parse = do
+getTree :: IO ()
+getTree = do
             handle <- openFile "Examples/test.pnd" ReadMode
             file <- hGetContents handle
             let ast = parseSource file
@@ -20,8 +20,8 @@ main = do
     args <- getArgs
     case args of
         [] -> print "Please pass the path to a source file\n"
-        [file] -> do
-            handle <- openFile (args !! 0) ReadMode
+        [path] -> do
+            handle <- openFile path ReadMode
             file <- hGetContents handle
 
             let ast = parseSource file
