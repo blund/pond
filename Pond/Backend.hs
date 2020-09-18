@@ -1,37 +1,56 @@
+-- | https://cloudnative.ly/haskell-mapping-with-state-7a07e3c2cbf9
+
 module Pond.Backend
     ( compile
     ) where
 
-import Prelude hiding (not, subtract, or, and)
+import Prelude hiding (not, subtract, or, and, lookup)
+
 import Control.Monad.State
+
 import Data.String
+import Data.Map hiding (map)
+
+
 import Pond.AST
 
 -----------------------------------
 -- | Back end
 -----------------------------------
 
-{-
-
-execute :: Program -> String
-execute p = runMain p
-    where runMain (Program f) = case f_name f of
-            "main" -> getResult (f_st f)
-            otherwise -> error "no function main defined"
-          getResult (Return e) = show e
--}
-
 compile :: Program -> String
-compile (Program f) = head (f_name f) ++ body ++ print ++ "ret\n"
+compile (Program f) = head (f_name f) ++ prologue ++ body ++ print ++ epilogue
     where head name = ".globl " ++ name ++ "\n\n" ++ name ++ ":\n"
           statements = f_st f
           print = makeAsm ["movq\t%rax, %rdi", "call\tprint"]
           -- Her mi ha en funksjon som evaluerer statements, ikke bare
           -- Exprs...
-          body  = unlines $ map compileStatements statements
+          body  = unlines $ evalState (mapM compileStatements statements) initialState
 
-compileStatements :: Statement -> String
-compileStatements (Return e) = evalState (evalExpr e) 0
+
+prologue = makeAsm [ "push %rbp"       -- save old value
+                   , "mov %rsp, %rbp" -- current top of stack is bottom of new stack frame
+		   ]
+           
+epilogue = makeAsm [ "mov %rbp, %rsp" -- restore ESP; now it points to old EBP
+                   , "pop %rbp"        -- restore old EBP"   now ESP is where it was before prologue
+                   , "ret"
+                   ]
+
+
+
+compileStatements :: Statement -> State CompilerState String
+compileStatements (Return e) = evalExpr e
+compileStatements (Expression e) = evalExpr e
+compileStatements (Declare id me) = do
+	 index <- stack_index <$> get
+	 modify (\s@(CompilerState {stack_map=m}) -> s {stack_map = insert id index m})
+	 modify (\s@(CompilerState {stack_index=i}) -> s {stack_index =i-8})
+         case me of
+	      Nothing -> return $ "push\t%rax\n"
+	      Just e  -> do
+	      	   expr' <- evalExpr e
+	 	   return $ expr' ++ "push\t%rax\n" 
 
 
 mov :: Int -> String
@@ -140,13 +159,67 @@ and count e1 e2 = makeAsm
     ]
   where n = show count
 
+lessThan :: String -> String -> String
+lessThan e1 e2 = makeAsm
+    [ e1
+    , "push\t%rax"
+    , e2
+    , "pop\t%rcx"          -- sign extend eax inn i edx
+    , "cmp\t%rax, %rcx"          -- sign extend eax inn i edx
+    , "mov\t$0, %rax"          -- sign extend eax inn i edx
+    , "setl\t%al"
+    ]
+
+lessEqual :: String -> String -> String
+lessEqual e1 e2 = makeAsm
+    [ e1
+    , "push\t%rax"
+    , e2
+    , "pop\t%rcx"          -- sign extend eax inn i edx
+    , "cmp\t%rax, %rcx"          -- sign extend eax inn i edx
+    , "mov\t$0, %rax"          -- sign extend eax inn i edx
+    , "setle\t%al"
+    ]
+
+greaterThan :: String -> String -> String
+greaterThan e1 e2 = makeAsm
+    [ e1
+    , "push\t%rax"
+    , e2
+    , "pop\t%rcx"          -- sign extend eax inn i edx
+    , "cmp\t%rax, %rcx"          -- sign extend eax inn i edx
+    , "mov\t$0, %rax"          -- sign extend eax inn i edx
+    , "setg\t%al"
+    ]
+
+greaterEqual :: String -> String -> String
+greaterEqual e1 e2 = makeAsm
+    [ e1
+    , "push\t%rax"
+    , e2
+    , "pop\t%rcx"          -- sign extend eax inn i edx
+    , "cmp\t%rax, %rcx"          -- sign extend eax inn i edx
+    , "mov\t$0, %rax"          -- sign extend eax inn i edx
+    , "setge\t%al"
+    ]
+
+
 makeAsm :: [String] -> String
 makeAsm xs = unlines $ (++ [""]) xs
 
 
 
 type Count = Int
-evalExpr :: Expr -> State Count String
+type StackIndex = Int
+data CompilerState = CompilerState { counter :: Int
+                     , stack_index :: Int
+                     , stack_map :: Map String Int
+		     }
+
+initialState = CompilerState {counter = 0, stack_index = 0, stack_map = fromList []}
+
+
+evalExpr :: Expr -> State CompilerState String
 evalExpr (Const int) = return $ mov int
 
 evalExpr (UnOp op e) = do
@@ -156,11 +229,33 @@ evalExpr (UnOp op e) = do
 
 evalExpr (BinOp op e1 e2) = do
         let op' = getBin op
-        count <- get
-        modify (+1)
+        count <- counter <$> get
+        modify (\s@(CompilerState {counter=c}) -> s {counter = c+1})
         e1' <- evalExpr e1
         e2' <- evalExpr e2
         return $ (op' count) e1' e2'
+
+evalExpr (Assign id expr) = do
+	 mpos <- lookup id . stack_map <$> get
+	 case mpos of
+	      Nothing -> error "Variable does not exist!"
+	      Just pos -> do
+	      	   expr' <- evalExpr expr
+		   return $ expr' ++ "mov\t%rax, " ++ show (pos-8) ++ "(%rbp)\n"
+	 
+
+
+evalExpr (Var id) = do
+	 mpos <- lookup id . stack_map <$> get 
+	 case mpos of
+	      Nothing -> error "yall fucked up"
+	      Just pos -> return $ "mov " ++ show (pos-8) ++ "(%rbp), %rax"
+	      -- @HACK: Her bare trekker vi fra 8, ettersom at det er
+	      -- indeks-feilen... Kanskje se om det er en fornuftig
+	      -- måte å gjøre dette på... Og! Dette vil avhenge av
+	      -- hva som pushes på stacken.. Kanskje man kan ha 
+	      -- mindre offsets for 32-bits variabler?
+	      -- Og hva med structs? Vi kommer vel dit!
 
 
 getUn Negate        = neg
@@ -174,3 +269,7 @@ getBin Divide   = (const divide)
 getBin Equal    = (const equal)
 getBin Or       = (\n -> or n)
 getBin And      = (\n -> and n)
+getBin LessThan = (const lessThan)
+getBin LessEqual = (const lessEqual)
+getBin GreaterThan = (const greaterThan)
+getBin GreaterEqual = (const greaterEqual)
