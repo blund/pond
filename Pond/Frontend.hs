@@ -23,11 +23,19 @@ function = do
     name <- identifier
     vars <- varList
     st <- between (many statement) (symbol "{") (symbol "}")
-    return $ Fun { f_type = typ
+    case checkForReturn st of
+    	 False -> error "no return statement in function!"
+	 True -> return $ Fun { f_type = typ
                  , f_name = name
                  , f_vars = vars
                  , f_st = st
                  }
+
+checkForReturn :: [Statement] -> Bool
+checkForReturn (x:xs) = case x of
+	       (Return _) -> True
+	       _ -> checkForReturn xs
+checkForReturn [] = False
 
 statement :: Parser Statement
 statement = choice [ do
@@ -46,7 +54,9 @@ statement = choice [ do
                         symbol "="
                         e <- expr
                         symbol ";"
-                        return (Declare name (Just e))) <|> return (Declare name Nothing)
+                        return (Declare name (Just e))) <|> do
+			       symbol ";"
+			       return (Declare name Nothing)
                     ]
 
 
@@ -111,7 +121,7 @@ factor = do
             v <- factor
             return (UnOp o v)
          <|> Const <$> (hexadecimal <|> binary <|> integer)
-         <|> Id <$> identifier
+         <|> Var <$> identifier
 
 
 doLeftRecur :: Parser Expr -> [String] -> Parser Expr
