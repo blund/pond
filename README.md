@@ -24,5 +24,9 @@ So far, the language assumes only the `main` function is defined, and that it `r
 
 More will be added soon!
 
+--
+
 The project is currenctly following the blog series from Nora Sandler, [Writing a C Comiler](https://norasandler.com/2017/11/29/Write-a-Compiler.html), which I heavily reccomend if you want to do a similar project.
 
+The plan for the language is to explore haskell-like typeclasses in an imperative language, 'first class metaprogramming' and generally see what can be done at compile time. 
+I also intend to build graphics/networking libraries in the future when when the language can do more than math.. But we'll get there!
