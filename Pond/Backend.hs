@@ -17,15 +17,12 @@ import Pond.AST
 -----------------------------------
 -- | Back end
 -----------------------------------
+printResult = makeAsm ["movq\t%rax, %rdi", "call\tprint"]
+            ++ epilogue
+
 
 compile :: Program -> String
-compile (Program f) = head (f_name f) ++ prologue ++ body ++ print ++ epilogue
-    where head name = ".globl " ++ name ++ "\n\n" ++ name ++ ":\n"
-          block_items = f_st f
-          print = makeAsm ["movq\t%rax, %rdi", "call\tprint"]
-          -- Her mi ha en funksjon som evaluerer statements, ikke bare
-          -- Exprs...
-          body  = unlines $ evalState (mapM compileBlockItem block_items) initialState
+compile (Program f) = ".globl main\n\n" ++ compileFunction f
 
 
 prologue = makeAsm [ "push %rbp"       -- save old value
@@ -38,6 +35,97 @@ epilogue = makeAsm [ "mov %rbp, %rsp" -- restore ESP; now it points to old EBP
                    ]
 
 
+
+makeAsm :: [String] -> String
+makeAsm xs = unlines $ (++ [""]) xs
+
+type Count = Int
+type StackIndex = Int
+type VarMap = Map String Int
+data CompilerState = CompilerState { counter :: Int
+                     , stack_index :: Int
+                     , var_map :: VarMap
+                     , current_scope :: VarMap
+                     , scope_bytes_declared :: Int
+                     }
+
+initialState = CompilerState { counter = 0
+                             , stack_index = -8  -- begin at 8 bytes offset
+                             , var_map = empty
+                             , current_scope = empty
+                             , scope_bytes_declared = 0
+                             }
+
+
+-- compileFunction :: Fun -> String
+compileFunction f = do
+  let st = initialState
+      name        = f_name f ++ ":\n\n"
+      block_items = f_st f
+      body        = evalState (compileBlock block_items st) st
+  name ++ prologue ++ body ++ epilogue
+
+
+-- @UKLART: Poenget her er å fange en kopi av tilstanden til
+-- compileren, men ikke modifisere den. Slik får vi laget 'scopes' som
+-- ikke påvirker hverandre, selv om at de er nøstet inn i hverandre..
+-- @UKLART: Det som skjer med 'scope_count' er at vi vil bevare denne
+-- telleren når vi går ut av en scope (siden den brukes for å
+-- spesifiere jumps i koden). Derfor må denne kodesnutten forbli i
+-- State-monaden - vi vil sende denne verdien videre. Resten av operasjonene
+-- som utføres er gjort i let-statements (som man kan se)
+compileBlock :: [BlockItem] -> CompilerState -> State CompilerState String
+compileBlock block state = do
+  let state' = state { current_scope = empty }
+      (block', state'') = runState (unlines <$> mapM compileBlockItem block) state'
+      -- Her deallokerer vi antal bytes som ble brukt i scopen,
+      -- altså vi minker bare stacken, slik at vi kan skrive
+      -- over verdiene som allerede var der :)
+      to_deallocate = show $ scope_bytes_declared state''
+      scope_count = counter state''
+  modify (\s -> s {counter = scope_count})
+  return $ block' ++ "add $" ++ to_deallocate ++ ", %rsp\n"
+
+  
+compileExpr :: Expr -> State CompilerState String
+compileExpr (Const int) = return $ mov int
+
+compileExpr (UnOp op e) = do
+        let op' = getUn op
+        e' <- compileExpr e
+        return $ e' ++ "\n"++ op'
+
+compileExpr (BinOp op e1 e2) = do
+        let op' = getBin op
+        count <- gets counter
+        modify (\s@CompilerState {counter=c} -> s {counter = c+1})
+        e1' <- compileExpr e1
+        e2' <- compileExpr e2
+        return $ op' count e1' e2'
+
+compileExpr (Assign id expr) = do
+         mpos <- gets $ lookup id . var_map
+         case mpos of
+              Nothing -> error $ "Cannot assign value to variable " ++ id ++", it has not defined"
+              Just pos -> do
+                   expr' <- compileExpr expr
+                   return $ expr' ++ "mov\t%rax, " ++ show pos ++ "(%rbp)\n"
+         
+
+
+compileExpr (Var id) = do
+         mpos <- gets $ lookup id . var_map
+         case mpos of
+              Nothing -> error $ "Can't refer to variable" ++ id ++ ", it has not been defined"
+              Just pos -> return $ "mov " ++ show pos ++ "(%rbp), %rax\n"
+              -- @HACK: Her bare trekker vi fra 8, ettersom at det er
+              -- indeks-feilen... Kanskje se om det er en fornuftig
+              -- måte å gjøre dette på... Og! Dette vil avhenge av
+              -- hva som pushes på stacken.. Kanskje man kan ha 
+              -- mindre offsets for 32-bits variabler?
+              -- Og hva med structs? Vi kommer vel dit!
+
+
 compileBlockItem :: BlockItem -> State CompilerState String
 compileBlockItem (Statement s) = compileStatement s
 compileBlockItem (Declaration d) = compileDeclaration d
@@ -45,22 +133,31 @@ compileBlockItem (Declaration d) = compileDeclaration d
 compileDeclaration :: Declare -> State CompilerState String
 compileDeclaration (Declare id me) = do
          index <- gets stack_index
-         modify (\s@CompilerState {stack_map=m} -> s {stack_map = insert id index m})
+         modify (\s@CompilerState {var_map=m} -> s {var_map = insert id index m})
          modify (\s@CompilerState {stack_index=i} -> s {stack_index =i-8})
+         -- @HACK her må faktisk avgjøre hvor mange bytes det er snakk om,
+         -- men siden vi kun bruker ints for nå er det bare 8 om gangen
+         modify (\s@CompilerState {scope_bytes_declared=b} -> s { scope_bytes_declared = b+8 })
          case me of
            Nothing -> return "push\t%rax\n"
            Just e  -> do
-             expr' <- evalExpr e
+             expr' <- compileExpr e
              return $ expr' ++ "push\t%rax\n" 
                  
 compileStatement :: Statement -> State CompilerState String
-compileStatement (Return e) = evalExpr e
-compileStatement (Expression e) = evalExpr e
-compileStatement c@(Condition _ _ _) = compileCondition c
+compileStatement (Return e) = do
+  e' <- compileExpr e
+  return $ e' ++ printResult
+compileStatement (Expression e) = compileExpr e
+compileStatement c@(Condition {}) = compileCondition c
+compileStatement (Compound b) = do
+  state <- get
+  compileBlock b state
+
 
 compileCondition :: Statement -> State CompilerState String
 compileCondition (Condition e s ms) = do
-    e1 <- evalExpr e
+    e1 <- compileExpr e
     e2 <- compileStatement s
     count <- gets counter
     modify (\s@CompilerState {counter=c} -> s {counter = c+1})
@@ -83,7 +180,23 @@ compileCondition (Condition e s ms) = do
                          , e3
                          , "_post_cond" ++ show count ++ ":"
                          ]
-        
+
+getUn Negate        = neg
+getUn Not           = not
+getUn Complement    = compl
+
+getBin Add          = const add
+getBin Subtract     = const subtract
+getBin Multiply     = const multiply
+getBin Divide       = const divide
+getBin Equal        = const equal
+getBin NotEqual     = const notEqual
+getBin Or           = or
+getBin And          = and
+getBin LessThan     = const lessThan
+getBin LessEqual    = const lessEqual
+getBin GreaterThan  = const greaterThan
+getBin GreaterEqual = const greaterEqual
 
 
 mov :: Int -> String
@@ -247,74 +360,3 @@ greaterEqual e1 e2 = makeAsm
     , "setge\t%al"
     ]
 
-
-makeAsm :: [String] -> String
-makeAsm xs = unlines $ (++ [""]) xs
-
-
-
-type Count = Int
-type StackIndex = Int
-data CompilerState = CompilerState { counter :: Int
-                     , stack_index :: Int
-                     , stack_map :: Map String Int
-                     }
-
-initialState = CompilerState {counter = 0, stack_index = 0, stack_map = empty}
-
-
-evalExpr :: Expr -> State CompilerState String
-evalExpr (Const int) = return $ mov int
-
-evalExpr (UnOp op e) = do
-        let op' = getUn op
-        e' <- evalExpr e
-        return $ e' ++ op'
-
-evalExpr (BinOp op e1 e2) = do
-        let op' = getBin op
-        count <- gets counter
-        modify (\s@CompilerState {counter=c} -> s {counter = c+1})
-        e1' <- evalExpr e1
-        e2' <- evalExpr e2
-        return $ op' count e1' e2'
-
-evalExpr (Assign id expr) = do
-         mpos <- gets $ lookup id . stack_map
-         case mpos of
-              Nothing -> error "Variable does not exist!"
-              Just pos -> do
-                   expr' <- evalExpr expr
-                   return $ expr' ++ "mov\t%rax, " ++ show (pos-8) ++ "(%rbp)\n"
-         
-
-
-evalExpr (Var id) = do
-         mpos <- gets $ lookup id . stack_map
-         case mpos of
-              Nothing -> error "yall fucked up"
-              Just pos -> return $ "mov " ++ show (pos-8) ++ "(%rbp), %rax"
-              -- @HACK: Her bare trekker vi fra 8, ettersom at det er
-              -- indeks-feilen... Kanskje se om det er en fornuftig
-              -- måte å gjøre dette på... Og! Dette vil avhenge av
-              -- hva som pushes på stacken.. Kanskje man kan ha 
-              -- mindre offsets for 32-bits variabler?
-              -- Og hva med structs? Vi kommer vel dit!
-
-
-getUn Negate        = neg
-getUn Not           = not
-getUn Complement    = compl
-
-getBin Add          = const add
-getBin Subtract     = const subtract
-getBin Multiply     = const multiply
-getBin Divide       = const divide
-getBin Equal        = const equal
-getBin NotEqual     = const notEqual
-getBin Or           = or
-getBin And          = and
-getBin LessThan     = const lessThan
-getBin LessEqual    = const lessEqual
-getBin GreaterThan  = const greaterThan
-getBin GreaterEqual = const greaterEqual

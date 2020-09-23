@@ -46,7 +46,17 @@ statement = choice [ do
                       symbol ";"
                       return e
                    , condition
+                   , compound
                    ]
+
+
+compound :: Parser Statement
+compound = do
+  symbol "{"
+  es <- some blockItem
+  symbol "}"
+  return (Compound es)
+
             
 condition :: Parser Statement
 condition = do
@@ -55,7 +65,7 @@ condition = do
   symbol "{"
   s1 <- statement
   symbol "}"
-  (else_block e s1) <|> (else_if e s1) <|> return (Condition e s1 Nothing)
+  else_block e s1 <|> return (Condition e s1 Nothing)
     where
       else_block e s1 = do
         symbol "else"
@@ -63,24 +73,23 @@ condition = do
         s2 <- statement
         symbol "}"
         return (Condition e s1 (Just s2))
-      else_if e s1 = do
+      else_st e s1 = do
                    symbol "else"
-                   s2 <- statement
-                   return (Condition e s1 (Just s2))
+                   Condition e s1 . Just <$> statement
  
 
 
 declare :: Parser Declare
 declare = do
-                      symbol "int"
-                      name <- identifier
-                      (do
-                        symbol "="
-                        e <- expr
-                        symbol ";"
-                        return (Declare name (Just e))) <|> do
-                               symbol ";"
-                               return (Declare name Nothing)
+ symbol "int"
+ name <- identifier
+ (do
+   symbol "="
+   e <- expr
+   symbol ";"
+   return (Declare name (Just e))) <|> do
+          symbol ";"
+          return (Declare name Nothing)
 
 getUOperator :: String -> UOperator
 getUOperator "-" = Negate

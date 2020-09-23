@@ -38,6 +38,7 @@ data Declare = Declare String (Maybe Expr)
 data Statement = Return Expr
                | Expression Expr
                | Condition Expr Statement (Maybe Statement)
+               | Compound [BlockItem]
   deriving (Show)
 
 type VarList = Maybe [Variable]
