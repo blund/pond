@@ -18,12 +18,12 @@ import Pond.AST
 -- | Back end
 -----------------------------------
 printResult = makeAsm ["movq\t%rax, %rdi", "call\tprint"]
-            ++ epilogue
-
 
 compile :: Program -> String
-compile (Program f) = ".globl main\n\n" ++ compileFunction f
-
+compile (Program fs) = evalState (foldM eachFun "" fs) initialState
+  where eachFun s1 fun = do
+          s2 <- compileFunction fun
+          return $ s1 ++ s2
 
 prologue = makeAsm [ "push %rbp"       -- save old value
                    , "mov %rsp, %rbp" -- current top of stack is bottom of new stack frame
@@ -39,32 +39,48 @@ epilogue = makeAsm [ "mov %rbp, %rsp" -- restore ESP; now it points to old EBP
 makeAsm :: [String] -> String
 makeAsm xs = unlines $ (++ [""]) xs
 
+
 type Count = Int
 type StackIndex = Int
 type VarMap = Map String Int
 data CompilerState = CompilerState { counter :: Int
                      , stack_index :: Int
                      , var_map :: VarMap
-                     , current_scope :: VarMap
                      , scope_bytes_declared :: Int
+                     , param_offset :: Int
                      }
 
 initialState = CompilerState { counter = 0
                              , stack_index = -8  -- begin at 8 bytes offset
                              , var_map = empty
-                             , current_scope = empty
                              , scope_bytes_declared = 0
+                             , param_offset = 16
                              }
 
 
--- compileFunction :: Fun -> String
-compileFunction f = do
-  let st = initialState
-      name        = f_name f ++ ":\n\n"
-      block_items = f_st f
-      body        = evalState (compileBlock block_items st) st
-  name ++ prologue ++ body ++ epilogue
 
+compileFunction :: FunctionDecl -> State CompilerState String
+compileFunction f = do
+  counter <- gets counter -- Counter er det vi vil ta med fra funksjon til funksjon. For å friske opp brukes denne for å lage unike jumps.
+
+  put initialState {counter = counter}
+
+  let maybe_vars = f_vars f
+  case maybe_vars of
+    Nothing -> return ()
+    Just vars -> do
+      let names = map v_name vars -- @SJEKK Her tar vi ikke hensyn til typer, tror ikke vi må det.
+      mapM_ addParam names     -- Legg til alle variabler til scope.
+  --vars<- gets var_map
+  --error $ show vars
+  tmp_state <- get
+  body <- compileBlock block_items tmp_state
+
+  return $ global ++ name ++ prologue ++ body ++ epilogue
+  
+  where name        = f_name f ++ ":\n\n"
+        global      = ".global " ++ f_name f ++ "\n"
+        block_items = f_st f
 
 -- @UKLART: Poenget her er å fange en kopi av tilstanden til
 -- compileren, men ikke modifisere den. Slik får vi laget 'scopes' som
@@ -76,19 +92,19 @@ compileFunction f = do
 -- som utføres er gjort i let-statements (som man kan se)
 compileBlock :: [BlockItem] -> CompilerState -> State CompilerState String
 compileBlock block state = do
-  let state' = state { current_scope = empty }
-      (block', state'') = runState (unlines <$> mapM compileBlockItem block) state'
+  let (block', state') = runState (unlines <$> mapM compileBlockItem block) state
       -- Her deallokerer vi antal bytes som ble brukt i scopen,
       -- altså vi minker bare stacken, slik at vi kan skrive
       -- over verdiene som allerede var der :)
-      to_deallocate = show $ scope_bytes_declared state''
-      scope_count = counter state''
-  modify (\s -> s {counter = scope_count})
+      to_deallocate = show $ scope_bytes_declared state'
+      new_counter = counter state'
+  modify (\s -> s {counter = new_counter})
   return $ block' ++ "add $" ++ to_deallocate ++ ", %rsp\n"
 
   
 compileExpr :: Expr -> State CompilerState String
 compileExpr (Const int) = return $ mov int
+
 
 compileExpr (UnOp op e) = do
         let op' = getUn op
@@ -97,8 +113,11 @@ compileExpr (UnOp op e) = do
 
 compileExpr (BinOp op e1 e2) = do
         let op' = getBin op
+        case op of
+          And -> modify (\s@CompilerState {counter=c} -> s {counter = c+1})
+          Or  -> modify (\s@CompilerState {counter=c} -> s {counter = c+1})
+          _   -> return ()
         count <- gets counter
-        modify (\s@CompilerState {counter=c} -> s {counter = c+1})
         e1' <- compileExpr e1
         e2' <- compileExpr e2
         return $ op' count e1' e2'
@@ -110,8 +129,7 @@ compileExpr (Assign id expr) = do
               Just pos -> do
                    expr' <- compileExpr expr
                    return $ expr' ++ "mov\t%rax, " ++ show pos ++ "(%rbp)\n"
-         
-
+        
 
 compileExpr (Var id) = do
          mpos <- gets $ lookup id . var_map
@@ -125,31 +143,51 @@ compileExpr (Var id) = do
               -- mindre offsets for 32-bits variabler?
               -- Og hva med structs? Vi kommer vel dit!
 
+compileExpr (FunctionCall id exprs) = do
+  exprs' <- (unlines <$> map (++ "push %rax\n") .  reverse) <$> mapM compileExpr exprs
+  let bytes = 8 * (length exprs) -- @HACK: fungerer bare for 64 bit ints
+      fn = "call " ++ show id ++ "\n"
+      cleanup = "add $" ++ show bytes ++ ", %rsp\n"
+  return $ exprs' ++ fn ++ cleanup
 
 compileBlockItem :: BlockItem -> State CompilerState String
 compileBlockItem (Statement s) = compileStatement s
 compileBlockItem (Declaration d) = compileDeclaration d
 
+addVariable :: String -> State CompilerState ()
+addVariable id = do
+  index <- gets stack_index
+  modify (\s@CompilerState {var_map=m} -> s {var_map = insert id index m})
+  modify (\s@CompilerState {stack_index=i} -> s {stack_index =i-8})
+  modify (\s@CompilerState {scope_bytes_declared=b} -> s { scope_bytes_declared = b+8 })
+
+  
+addParam :: String -> State CompilerState ()
+addParam id = do
+  offset <- gets param_offset
+  modify (\s@CompilerState {var_map=m} -> s {var_map = insert id offset m})
+  modify (\s@CompilerState {param_offset=p} -> s {param_offset =p+8})
+  modify (\s@CompilerState {scope_bytes_declared=b} -> s { scope_bytes_declared = b+8 })
+
+  
 compileDeclaration :: Declare -> State CompilerState String
 compileDeclaration (Declare id me) = do
-         index <- gets stack_index
-         modify (\s@CompilerState {var_map=m} -> s {var_map = insert id index m})
-         modify (\s@CompilerState {stack_index=i} -> s {stack_index =i-8})
-         -- @HACK her må faktisk avgjøre hvor mange bytes det er snakk om,
-         -- men siden vi kun bruker ints for nå er det bare 8 om gangen
-         modify (\s@CompilerState {scope_bytes_declared=b} -> s { scope_bytes_declared = b+8 })
-         case me of
-           Nothing -> return "push\t%rax\n"
-           Just e  -> do
-             expr' <- compileExpr e
-             return $ expr' ++ "push\t%rax\n" 
+  addVariable id
+  case me of
+    Nothing -> return "push\t%rax\n"
+    Just e  -> do
+      expr' <- compileExpr e
+      return $ expr' ++ "push\t%rax\n" 
                  
 compileStatement :: Statement -> State CompilerState String
+-- | @TODO Return her er feil, siden den faktisk skal returne verdien
+-- i en funksjon.. vi håndterer dette i slutten av en funksjon,
+-- men det skal strengt tatt håndteres her...
 compileStatement (Return e) = do
   e' <- compileExpr e
-  return $ e' ++ printResult
+  return $ e' ++ epilogue
 compileStatement (Expression e) = compileExpr e
-compileStatement c@(Condition {}) = compileCondition c
+compileStatement c@Condition {} = compileCondition c
 compileStatement (Compound b) = do
   state <- get
   compileBlock b state
@@ -163,23 +201,25 @@ compileCondition (Condition e s ms) = do
     modify (\s@CompilerState {counter=c} -> s {counter = c+1})
     case ms of
       Nothing -> do
-        return $ makeAsm [ e1
-                         , "cmp $0, %rax"
-                         , "je _post_cond" ++ show count
-                         , e2
-                         , "_post_cond" ++ show count ++ ":"
-                         ]
+        return $ makeAsm
+          [ e1
+          , "cmp $0, %rax"
+          , "je _post_cond" ++ show count
+          , e2
+          , "_post_cond" ++ show count ++ ":"
+          ]
       Just s2  -> do
         e3 <- compileStatement s2
-        return $ makeAsm [ e1
-                         , "cmp $0, %rax"
-                         , "je _e3" ++ show count
-                         , e2
-                         , "jmp _post_cond" ++ show count
-                         , "_e3" ++ show count ++ ":"
-                         , e3
-                         , "_post_cond" ++ show count ++ ":"
-                         ]
+        return $ makeAsm
+          [ e1
+          , "cmp $0, %rax"
+          , "je _e3" ++ show count
+          , e2
+          , "jmp _post_cond" ++ show count
+          , "_e3" ++ show count ++ ":"
+          , e3
+          , "_post_cond" ++ show count ++ ":"
+          ]
 
 getUn Negate        = neg
 getUn Not           = not

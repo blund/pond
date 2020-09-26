@@ -1,6 +1,6 @@
 module Pond.AST
     ( Program (..)
-    , Fun (..)
+    , FunctionDecl (..)
     , Statement (..)
     , VarList (..)
     , Variable (..)
@@ -17,10 +17,10 @@ module Pond.AST
 -- | Datatypes that make the AST
 ---------------------------------------
 
-data Program = Program Fun
+data Program = Program [FunctionDecl]
   deriving (Show)
 
-data Fun = Fun
+data FunctionDecl = FunctionDecl
     { f_type    :: String
     , f_name    :: String
     , f_vars    :: VarList
@@ -49,7 +49,8 @@ data Variable = VarDef
     }
   deriving (Show)
 
-data Expr = Assign String Expr
+data Expr = FunctionCall String [Expr]
+          | Assign String Expr
           | Var String
           | BinOp BOperator Expr Expr
           | UnOp UOperator Expr

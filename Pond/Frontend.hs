@@ -15,20 +15,24 @@ extract _ = error "parse error"
 parseSource = extract . parse program
 
 program :: Parser Program
-program = Program <$> function
+program = do
+  fs <- many functionDecl
+  return $ Program fs
 
-function :: Parser Fun
-function = do
+functionDecl :: Parser FunctionDecl
+functionDecl = do
     typ <- symbol "int"
     name <- identifier
     vars <- varList
     bi <- between (many blockItem) (symbol "{") (symbol "}")
-    -- Her kan vi sjekke etter mangel på return statement!
-    return $ Fun { f_type = typ
-               , f_name = name
-               , f_vars = vars
-               , f_st = bi
-               }
+    -- @TODO: Her kan vi sjekke etter mangel på return statement!
+    return $ FunctionDecl
+      { f_type = typ
+      , f_name = name
+      , f_vars = vars
+      , f_st = bi
+      }
+
 
 blockItem :: Parser BlockItem
 blockItem = choice [ Statement <$> statement
@@ -113,9 +117,19 @@ getBOperator "||"   = Or
 -- https://norasandler.com/2017/12/15/Write-a-Compiler-3.html
 
 expr :: Parser Expr
-expr = assign <|> pres6
+expr = assign <|> functionCall <|> pres6 
 
-
+functionCall :: Parser Expr
+functionCall = do
+  id <- identifier
+  args <- some_args <|> no_args
+  return $ FunctionCall id args
+  where some_args = list expr "(" ")"
+        no_args = do
+          symbol "("
+          symbol ")"
+          return []
+  
 assign :: Parser Expr
 assign = do
     name <- identifier
