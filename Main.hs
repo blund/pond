@@ -4,8 +4,8 @@ import System.IO
 import System.Environment
 import System.Process
 
-import Pond.Backend
 import Pond.Frontend
+import Pond.Backend
 
 getTree :: IO ()
 getTree = do
