@@ -1,3 +1,4 @@
+
 module Pond.Frontend
     ( parseSource
     ) where
@@ -117,7 +118,7 @@ getBOperator "||"   = Or
 -- https://norasandler.com/2017/12/15/Write-a-Compiler-3.html
 
 expr :: Parser Expr
-expr = assign <|> functionCall <|> pres6 
+expr = assign <|> pres6 <|> functionCall
 
 functionCall :: Parser Expr
 functionCall = do
@@ -127,7 +128,7 @@ functionCall = do
   where some_args = list expr "(" ")"
         no_args = do
           symbol "("
-          symbol ")"
+          char ')'
           return []
   
 assign :: Parser Expr
@@ -135,7 +136,6 @@ assign = do
     name <- identifier
     symbol "="
     Assign name <$> expr
-
 
 pres6 :: Parser Expr
 pres6 = doLeftRecur pres5 ["||"]
@@ -164,6 +164,7 @@ factor = do
          <|> do
             o <- getUOperator <$> (symbol "-" <|> symbol "~" <|> symbol "!")
             UnOp o <$> factor
+         <|> functionCall
          <|> Const <$> (hexadecimal <|> binary <|> integer)
          <|> Var <$> identifier
 
