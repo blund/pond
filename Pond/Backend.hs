@@ -25,12 +25,12 @@ compile (Program fs) = evalState (foldM eachFun "" fs) initialState
           s2 <- compileFunction fun
           return $ s1 ++ s2
 
-prologue = makeAsm [ "push %rbp"       -- save old value
-                   , "mov %rsp, %rbp" -- current top of stack is bottom of new stack frame
+prologue = makeAsm [ "push\t%rbp"       -- save old value
+                   , "mov\t%rsp, %rbp" -- current top of stack is bottom of new stack frame
                    ]
            
-epilogue = makeAsm [ "mov %rbp, %rsp" -- restore ESP; now it points to old EBP
-                   , "pop %rbp"        -- restore old EBP"   now ESP is where it was before prologue
+epilogue = makeAsm [ "mov\t%rbp, %rsp" -- restore ESP; now it points to old EBP
+                   , "pop\t%rbp"        -- restore old EBP"   now ESP is where it was before prologue
                    , "ret"
                    ]
 
@@ -76,7 +76,7 @@ compileFunction f = do
   tmp_state <- get
   body <- compileBlock block_items tmp_state
 
-  return $ global ++ name ++ prologue ++ body ++ epilogue
+  return $ global ++ name ++ prologue ++ body
   
   where name        = f_name f ++ ":\n\n"
         global      = ".global " ++ f_name f ++ "\n"
@@ -99,7 +99,7 @@ compileBlock block state = do
       to_deallocate = show $ scope_bytes_declared state'
       new_counter = counter state'
   modify (\s -> s {counter = new_counter})
-  return $ block' ++ "add $" ++ to_deallocate ++ ", %rsp\n"
+  return $ block' ++ "add\t$" ++ to_deallocate ++ ", %rsp\n"
 
   
 compileExpr :: Expr -> State CompilerState String
@@ -135,7 +135,7 @@ compileExpr (Var id) = do
          mpos <- gets $ lookup id . var_map
          case mpos of
               Nothing -> error $ "Can't refer to variable" ++ id ++ ", it has not been defined"
-              Just pos -> return $ "mov " ++ show pos ++ "(%rbp), %rax\n"
+              Just pos -> return $ "mov\t" ++ show pos ++ "(%rbp), %rax\n"
               -- @HACK: Her bare trekker vi fra 8, ettersom at det er
               -- indeks-feilen... Kanskje se om det er en fornuftig
               -- måte å gjøre dette på... Og! Dette vil avhenge av
@@ -144,10 +144,10 @@ compileExpr (Var id) = do
               -- Og hva med structs? Vi kommer vel dit!
 
 compileExpr (FunctionCall id exprs) = do
-  exprs' <- (unlines <$> map (++ "push %rax\n") .  reverse) <$> mapM compileExpr exprs
-  let bytes = 8 * (length exprs) -- @HACK: fungerer bare for 64 bit ints
-      fn = "call " ++ show id ++ "\n"
-      cleanup = "add $" ++ show bytes ++ ", %rsp\n"
+  exprs' <- (unlines <$> map (++ "push\t%rax\n") .  reverse) <$> mapM compileExpr exprs
+  let bytes = 8 * length exprs -- @HACK: fungerer bare for 64 bit ints
+      fn = "call " ++ id ++ "\n"
+      cleanup = "add\t$" ++ show bytes ++ ", %rsp\n"
   return $ exprs' ++ fn ++ cleanup
 
 compileBlockItem :: BlockItem -> State CompilerState String
@@ -203,8 +203,8 @@ compileCondition (Condition e s ms) = do
       Nothing -> do
         return $ makeAsm
           [ e1
-          , "cmp $0, %rax"
-          , "je _post_cond" ++ show count
+          , "cmp\t$0, %rax"
+          , "je\t_post_cond" ++ show count
           , e2
           , "_post_cond" ++ show count ++ ":"
           ]
@@ -212,10 +212,10 @@ compileCondition (Condition e s ms) = do
         e3 <- compileStatement s2
         return $ makeAsm
           [ e1
-          , "cmp $0, %rax"
-          , "je _e3" ++ show count
+          , "cmp\t$0, %rax"
+          , "je\t_e3" ++ show count
           , e2
-          , "jmp _post_cond" ++ show count
+          , "jmp\t_post_cond" ++ show count
           , "_e3" ++ show count ++ ":"
           , e3
           , "_post_cond" ++ show count ++ ":"
@@ -246,22 +246,22 @@ mov v =  makeAsm
 
 neg :: String
 neg = makeAsm
-    [ "neg  %rax"
+    [ "neg \t%rax"
     ]
 
 not :: String
 not = makeAsm
-    [ "cmp  $0, %rax"    -- compare eax to 0
-    , "xor  $0, %rax"   -- zero out register
-    , "sete %al"         -- iff ZF from comparison, set lower byte of eax
+    [ "cmp\t$0, %rax"    -- compare eax to 0
+    , "xor\t$0, %rax"   -- zero out register
+    , "sete\t%al"         -- iff ZF from comparison, set lower byte of eax
     , ""
     ]
 
 compl :: String
 compl = makeAsm
-    [ "cmp  $0, %rax"    -- compare eax to 0
-    , "xor  %rax, %rax"   -- zero out register
-    , "sete %al"         -- iff ZF from comparison, set lower byte of eax
+    [ "cmp\t$0, %rax"    -- compare eax to 0
+    , "xor\t%rax, %rax"   -- zero out register
+    , "sete\t%al"         -- iff ZF from comparison, set lower byte of eax
     ]
 
 add :: String -> String -> String
