@@ -62,7 +62,7 @@ compound = do
   symbol "}"
   return (Compound es)
 
-            
+
 condition :: Parser Statement
 condition = do
   symbol "if"
@@ -81,7 +81,7 @@ condition = do
       else_st e s1 = do
                    symbol "else"
                    Condition e s1 . Just <$> statement
- 
+
 
 
 declare :: Parser Declare
@@ -128,9 +128,9 @@ functionCall = do
   where some_args = list expr "(" ")"
         no_args = do
           symbol "("
-          char ')'
+          symbol ")"
           return []
-  
+
 assign :: Parser Expr
 assign = do
     name <- identifier
