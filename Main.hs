@@ -9,23 +9,24 @@ import Pond.Backend
 
 getTree :: IO ()
 getTree = do
-            handle <- openFile "Examples/test.pnd" ReadMode
-            file <- hGetContents handle
-            let ast = parseSource file
-            print ast
+  handle <- openFile "Examples/test.pnd" ReadMode
+  file <- hGetContents handle
+  let ast = parseSource file
+  print ast
 
 
 main :: IO ()
 main = do
-    args <- getArgs
-    case args of
-        [] -> print "Please pass the path to a source file\n"
-        [path] -> do
-            handle <- openFile path ReadMode
-            file <- hGetContents handle
+  
+  args <- getArgs
+  case args of
+    [] -> print "Please pass the path to a source file\n"
+    [path] -> do
+      handle <- openFile path ReadMode
+      file <- hGetContents handle
 
-            let ast = parseSource file
+      let ast = parseSource file
+      
+      writeFile "Build/out.s" $ compile ast
 
-            writeFile "Build/out.s" $ compile ast
-
-            hClose handle
+      hClose handle
