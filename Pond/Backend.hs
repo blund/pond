@@ -11,6 +11,7 @@ import Control.Monad.State
 import Data.String
 import Data.Map hiding (map)
 
+import System.Info
 
 import Pond.AST
 
@@ -43,12 +44,14 @@ makeAsm xs = unlines $ (++ [""]) xs
 type Count = Int
 type StackIndex = Int
 type VarMap = Map String Int
-data CompilerState = CompilerState { counter :: Int
-                     , stack_index :: Int
-                     , var_map :: VarMap
-                     , scope_bytes_declared :: Int
-                     , param_offset :: Int
-                     }
+data CompilerState = CompilerState
+  { counter :: Int
+  , stack_index :: Int
+  , var_map :: VarMap
+  , scope_bytes_declared :: Int
+  , param_offset :: Int
+  }
+
 
 initialState = CompilerState { counter = 0
                              , stack_index = -8  -- begin at 8 bytes offset
@@ -56,7 +59,6 @@ initialState = CompilerState { counter = 0
                              , scope_bytes_declared = 0
                              , param_offset = 16
                              }
-
 
 
 compileFunction :: FunctionDecl -> State CompilerState String
@@ -78,9 +80,15 @@ compileFunction f = do
 
   return $ global ++ name ++ prologue ++ body
   
-  where name        = f_name f ++ ":\n\n"
-        global      = ".global " ++ f_name f ++ "\n"
+  where name        = mkName (f_name f) ++ ":\n\n"
+        global      = ".global " ++ mkName (f_name f) ++ "\n"
         block_items = f_st f
+
+
+mkName :: String -> String
+mkName name = case System.Info.os of
+  "darwin" -> "_" ++ name
+  _ -> name
 
 -- @UKLART: Poenget her er å fange en kopi av tilstanden til
 -- compileren, men ikke modifisere den. Slik får vi laget 'scopes' som
@@ -146,7 +154,7 @@ compileExpr (Var id) = do
 compileExpr (FunctionCall id exprs) = do
   exprs' <- (unlines <$> map (++ "push\t%rax\n") .  reverse) <$> mapM compileExpr exprs
   let bytes = 8 * length exprs -- @HACK: fungerer bare for 64 bit ints
-      fn = "call " ++ id ++ "\n"
+      fn = "call " ++ mkName id ++ "\n"
       cleanup = "add\t$" ++ show bytes ++ ", %rsp\n"
   return $ exprs' ++ fn ++ cleanup
 
